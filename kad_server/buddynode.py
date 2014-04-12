@@ -1,8 +1,8 @@
 """
 This will be the fundamental part of the buddy daemon. Starts a Kademlia node and implements functionality for Node ID verification.
 """
-from buddyfs.entangled import kademlia
-from buddyfs.entangled.kademlia.datastore import SQLiteDataStore
+from entangled import kademlia
+from entangled.kademlia.datastore import SQLiteDataStore
 import cPickle
 
 class BuddyNode(kademlia.node.Node):
@@ -26,6 +26,7 @@ class BuddyNode(kademlia.node.Node):
 		print "New NodeID generated : ", nodeid
 		file.write(nodeid)
 		file.close()
+<<<<<<< HEAD
 	
 	@classmethod
 	def get_root(pubkey):
@@ -40,3 +41,5 @@ class BuddyNode(kademlia.node.Node):
 
 
 
+=======
+>>>>>>> 61db1ca09fc0d756dd2f7e33fa861cab54f9b0c4

@@ -1,10 +1,10 @@
 import sys, os
 import os.path
 import twisted
-sys.path.append(os.path.abspath(".."))
-from buddyfs import settings
-from buddyfs.kad_server.buddynode import BuddyNode
-from buddyfs.entangled.kademlia.datastore import SQLiteDataStore
+sys.path.append(os.path.abspath(os.path.dirname(__file__) + '/..'))
+import settings
+from kad_server.buddynode import BuddyNode
+from entangled.kademlia.datastore import SQLiteDataStore
 
 if __name__ == '__main__':
 	print "Starting buddy-daemon on port " , settings.BUDDY_PORT
