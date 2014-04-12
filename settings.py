@@ -1,0 +1,1 @@
+BUDDY_PORT = 5000
