@@ -3,6 +3,7 @@
 
 import argparse
 import errno
+import gnupg
 import llfuse
 import logging
 import os
@@ -151,6 +152,7 @@ class BuddyFSOperations(llfuse.Operations):
     def __init__(self):
         super(BuddyFSOperations, self).__init__()
         self.tree = FSTree()
+        self.gpg = gnupg.GPG()
 
     def statfs(self):
         stat_ = llfuse.StatvfsData()
@@ -232,17 +234,18 @@ class BuddyFSOperations(llfuse.Operations):
         """
         Automatically setup filesystem structure on backend providers.
         """
-        root = BuddyNode.get_root()
 
-        if root is None:
+        key = self.gpg.list_keys()[0]['fingerprint']
+        try:
+            root = BuddyNode.get_node().get_root(key)
+            self.tree.register_root_inode(root)
+        except KeyError:
             logging.info('Did not find existing root inode pointer.'
                     ' Generating new root inode pointer.')
             self.tree.generate_root_inode()
 
             # Find a better way to store this value
-            root = BuddyNode.set_root(self.tree.ROOT_INODE)
-        else:
-            self.tree.register_root_inode(root)
+            root = BuddyNode.get_node().set_root(key, self.tree.ROOT_INODE)
 
 if __name__ == '__main__':
     # pylint: disable-msg=C0103 

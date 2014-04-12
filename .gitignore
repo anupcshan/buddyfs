@@ -54,3 +54,7 @@ docs/_build/
 
 # Vim swap files
 *.swp
+
+
+# BuddyFS files
+.nodeid
