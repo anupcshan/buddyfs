@@ -48,3 +48,9 @@ Write Block
 	
 Read Block :
 	Read block using block ID, else return "false"
+
+Get Root Inode :
+	Return the current user root inode from DHT
+
+Set Root Inode :
+	Store the current user root inode to DHT
