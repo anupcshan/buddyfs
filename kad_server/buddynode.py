@@ -7,6 +7,7 @@ import cPickle as pickle
 import os
 import settings
 import time
+import hashlib
 
 class BuddyNode(kademlia.node.Node):
     """ Kademlia node with a few helper functions for BuddyFS """
@@ -14,13 +15,18 @@ class BuddyNode(kademlia.node.Node):
     node = None
 
     @classmethod
-    def get_node(cls):
+    def get_node(cls, start_port=settings.BUDDY_PORT, known_ip=None, known_port=None):
         if BuddyNode.node:
             return BuddyNode.node
-
-        datastore = SQLiteDataStore(dbFile = settings.DBPATH+'/buddydht.db')
-        BuddyNode.node = BuddyNode(None, settings.BUDDY_PORT, datastore)
-        BuddyNode.node.joinNetwork([])
+        
+        dbpath = settings.DBPATH+'/buddydht-%s.db' % start_port
+        datastore = SQLiteDataStore(dbFile = dbpath)
+        print "Starting buddy-daemon on port " , start_port
+        BuddyNode.node = BuddyNode(None, start_port, datastore)
+        if(known_ip == None or known_port == None):
+            BuddyNode.node.joinNetwork([])
+        else :
+            BuddyNode.node.joinNetwork([(known_ip, known_port)])
         return BuddyNode.node
 
     def __init__(self, nodeid, udpPort, dataStore, routingTable=None, networkProtocol=None) :
@@ -47,9 +53,11 @@ class BuddyNode(kademlia.node.Node):
     
     def get_root(self, pubkey):
         datastore = SQLiteDataStore(dbFile = settings.DBPATH+'/buddydht.db')
-        return pickle.loads(datastore.__getitem__("root_"+pubkey))
+        key = hashlib.sha1("root_"+pubkey).digest()
+        return self.iterativeFindValue(key)
 
     def set_root(self, pubkey, root_inode):
         datastore = SQLiteDataStore(dbFile = settings.DBPATH+'/buddydht.db')
-        datastore.setItem("root_"+pubkey, pickle.dumps(root_inode, pickle.HIGHEST_PROTOCOL), int(time.time()), int(time.time()), self.get_node_id())
+        key = hashlib.sha1("root_"+pubkey).digest()
+        datastore.iterativeStore(key, pickle.dumps(root_inode, pickle.HIGHEST_PROTOCOL), int(time.time()), int(time.time()), self.get_node_id())
 

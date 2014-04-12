@@ -344,6 +344,7 @@ class Node(object):
 
         now = int(time.time())
         originallyPublished = now - age
+        print "Storing on DHT : %s %s %s %s %s" % (key, value, now, originallyPublished, originalPublisherID)
         self._dataStore.setItem(key, value, now, originallyPublished, originalPublisherID)
         return 'OK'
 

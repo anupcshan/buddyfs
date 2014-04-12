@@ -1,2 +1,2 @@
 BUDDY_PORT = 5000
-DBPATH = '/tmp'
+DBPATH = '.'
