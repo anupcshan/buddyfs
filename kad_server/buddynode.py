@@ -26,7 +26,6 @@ class BuddyNode(kademlia.node.Node):
 		print "New NodeID generated : ", nodeid
 		file.write(nodeid)
 		file.close()
-<<<<<<< HEAD
 	
 	@classmethod
 	def get_root(pubkey):
@@ -38,8 +37,3 @@ class BuddyNode(kademlia.node.Node):
 		datastore = SQLiteDataStore(dbFile = settings.DBPATH+'/buddydht.db')
 		datastore._setitem_("root_"+pubkey, pickle.dumps(root_inode, pickle.HIGHEST_PROTOCOL))
 
-
-
-
-=======
->>>>>>> 61db1ca09fc0d756dd2f7e33fa861cab54f9b0c4
