@@ -20,6 +20,7 @@ class BuddyNode(kademlia.node.Node):
 
         datastore = SQLiteDataStore(dbFile = settings.DBPATH+'/buddydht.db')
         BuddyNode.node = BuddyNode(id, settings.BUDDY_PORT, datastore)
+        BuddyNode.node.joinNetwork([])
         return BuddyNode.node
 
     def __init__(self, nodeid, udpPort, dataStore, routingTable=None, networkProtocol=None) :
