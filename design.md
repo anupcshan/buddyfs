@@ -1,5 +1,4 @@
-There are two components in BuddyFS. FUSE and 
-
+There are two components in BuddyFS. FUSE and the Kad Facade
 
 FUSE :
 ======
