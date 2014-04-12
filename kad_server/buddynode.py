@@ -19,22 +19,23 @@ class BuddyNode(kademlia.node.Node):
             return BuddyNode.node
 
         datastore = SQLiteDataStore(dbFile = settings.DBPATH+'/buddydht.db')
-        BuddyNode.node = BuddyNode(id, settings.BUDDY_PORT, datastore)
+        BuddyNode.node = BuddyNode(None, settings.BUDDY_PORT, datastore)
         BuddyNode.node.joinNetwork([])
         return BuddyNode.node
 
     def __init__(self, nodeid, udpPort, dataStore, routingTable=None, networkProtocol=None) :
-        if(nodeid==""):
-            nodeid=get_node_id()
+        if nodeid is None:
+            nodeid=self.get_node_id()
         kademlia.node.Node.__init__(self, nodeid, udpPort, dataStore, routingTable, networkProtocol)
         BuddyNode.node = self
 
     def get_node_id(self) :
         nodeid = ""
         if(os.path.isfile(".nodeid")):
-            file = open(".nodeid","r")
-            if(file.read()!=""):
-                return file.read();
+            f = open(".nodeid","r")
+            x = f.read()
+            if x != "":
+                return x
 
         " Create new node id and store it in .nodeid file "
         file = open(".nodeid", "w+")
@@ -42,6 +43,7 @@ class BuddyNode(kademlia.node.Node):
         print "New NodeID generated : ", nodeid
         file.write(nodeid)
         file.close()
+        return nodeid
     
     def get_root(self, pubkey):
         datastore = SQLiteDataStore(dbFile = settings.DBPATH+'/buddydht.db')
