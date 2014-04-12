@@ -1,4 +1,4 @@
-buddyfs
+BuddyFS
 =======
 
-P2P File System to share storage space with your buddies 
+P2P File System to share storage space on your computer with your friends.
