@@ -10,9 +10,10 @@ import stat
 import sys
 from time import time
 
-sys.path.append("..")
-from kad_server import buddynode
+sys.path.append(os.path.abspath(os.path.dirname(__file__) + '/..'))
+from kad_server.buddynode import BuddyNode
 
+""" On-disk representation. """
 class BlockMetadata:
     """ Block metedata structure. """
     def __init__(self):
@@ -22,6 +23,7 @@ class BlockMetadata:
 class FileMetadata:
     """ File metadata structure. """
     def __init__(self):
+        # TODO: Figure out how to represent compact files within this structure.
         self.mtime = time()
         self.name = None
         self.length = 0
@@ -31,10 +33,13 @@ class FileMetadata:
 class DirMetadata:
     """ Directory metadata structure. """
     def __init__(self):
+        self.mtime = time()
         self.name = None
         self.files = []
         self.version = 1        # Again, needed?
 
+
+""" In-memory FS representation. """
 class Inode:
     """ Inode data structure. """
     def __init__(self, _id):
@@ -227,15 +232,15 @@ class BuddyFSOperations(llfuse.Operations):
         """
         Automatically setup filesystem structure on backend providers.
         """
-        root = buddynode.get_root()
+        root = BuddyNode.get_root()
 
         if root is None:
-            logging.info('Did not find existing root inode pointer on any '
-                    'endpoint. Generating new root inode pointer.')
+            logging.info('Did not find existing root inode pointer.'
+                    ' Generating new root inode pointer.')
             self.tree.generate_root_inode()
 
             # Find a better way to store this value
-            root = buddynode.set_root(self.tree.ROOT_INODE)
+            root = BuddyNode.set_root(self.tree.ROOT_INODE)
         else:
             self.tree.register_root_inode(root)
 
@@ -255,8 +260,6 @@ if __name__ == '__main__':
 
     operations = BuddyFSOperations()
     operations.auto_create_filesystem()
-    # TODO: Load filesystem structure from backends and export them
-    #       using FUSE.
     
     logging.info('Mounting BuddyFS')
     llfuse.init(operations, args.mountpoint, [ b'fsname=BuddyFS' ])

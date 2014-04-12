@@ -1,7 +1,7 @@
 """
 This will be the fundamental part of the buddy daemon. Starts a Kademlia node and implements functionality for Node ID verification.
 """
-from buddyfs.entangled import kademlia
+from entangled import kademlia
 
 class BuddyNode(kademlia.node.Node):
 	""" Kademlia node with a few helper functions for BuddyFS """
@@ -24,5 +24,3 @@ class BuddyNode(kademlia.node.Node):
 		print "New NodeID generated : ", nodeid
 		file.write(nodeid)
 		file.close()
-
-
