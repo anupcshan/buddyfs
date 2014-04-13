@@ -12,6 +12,8 @@ from twisted.internet.protocol import Protocol, Factory
 from os.path import expanduser
 home = expanduser("~")
 
+daemon_port = "9000"
+
 class RPCServer(Protocol):
 
   def __init__(self):
@@ -93,7 +95,6 @@ class RPCServer(Protocol):
 
 factory = Factory()
 factory.protocol = RPCServer
-twisted.internet.reactor.listenTCP(9000, factory)
 
 if __name__ == '__main__':
 
@@ -104,9 +105,13 @@ if __name__ == '__main__':
         BuddyNode.get_node(int(sys.argv[1]))
     elif (len(sys.argv)==4):
         BuddyNode.get_node(int(sys.argv[1]), sys.argv[2], int(sys.argv[3]))
+    elif (len(sys.argv)==5):
+        daemon_port = sys.argv[2]
+        BuddyNode.get_node(int(sys.argv[1]), sys.argv[3], int(sys.argv[4]))
     else: 
        print "USAGE : ./buddy.sh <start_port> <known_ip> <known_port>" 
        sys.exit(1)
     
+    twisted.internet.reactor.listenTCP(int(daemon_port), factory)
     " Check DHT for previously connected peers. Next step, check with trackers for the last connected user and get the peer list "
     twisted.internet.reactor.run()
