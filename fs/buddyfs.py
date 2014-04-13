@@ -59,6 +59,7 @@ class Inode:
         self.children = []
         self.parent = None
         self.version = 1
+        self.blockMetadata = None
 
 class FSTree:
     """ Inode tree structure and associated utilities. """
@@ -67,6 +68,34 @@ class FSTree:
         self.inodes = {}
         self.ROOT_INODE = None
         self.inode_open_count = {}
+
+    def _commit_block_(self, blk_meta, blk_data):
+        ciphertext = self._encrypt_block_(blk_meta, blk_data)
+        BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
+
+    def _read_block_(self, blk_meta):
+        ciphertext = BuddyNode.get_node().get_root(blk_meta.id)
+        plaintext = self._decrypt_block_(blk_meta, blk_data)
+        return plaintext
+
+    def _encrypt_block_(self, blk_meta, blk_data):
+        if blk_meta.symkey is None:
+            blk_meta.symkey = Random.new().read(AES.block_size)
+
+        cipher = AESCipher(blk_meta.symkey)
+        ciphertext = cipher.encrypt(blk_data)
+        blk_meta.id = hashlib.sha256(ciphertext).hexdigest()
+        return ciphertext
+
+    def _decrypt_block_(self, blk_meta, ciph_data):
+        if blk_meta.symkey is None:
+            raise Exception("Key not provied while trying to decrypt block")
+
+        if hashlib.sha256(ciph_data) != blk_meta.id:
+            raise Exception("Integrity check failed: block ID differs from block digest")
+
+        cipher = AESCipher(blk_meta.symkey)
+        return cipher.decrypt(ciph_data)
 
     def generate_root_inode(self):
         if self.ROOT_INODE is not None:
@@ -78,13 +107,23 @@ class FSTree:
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
                 stat.S_IXGRP | stat.S_IXOTH)
 
-    def register_root_inode(self, root_inode):
+        rootMeta = self.ROOT_INODE.blockMetadata = BlockMetadata()
+        dirMeta = DirMetadata()
+        self._commit_block_(dirMeta, rootMeta)
+
+        root = BuddyNode.get_node().set_root(key, self.ROOT_INODE)
+
+    def register_root_inode(self, root_block):
         if self.ROOT_INODE is not None:
             raise "Attempting to overwrite root inode"
 
-        self.ROOT_INODE = root_inode
-        self.inodes[root_inode.id] = root_inode
-        self.__current_id += 1
+        self.ROOT_INODE = self.new_inode()
+        self.ROOT_INODE.parent = self.ROOT_INODE.id
+        self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
+                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
+                stat.S_IXGRP | stat.S_IXOTH)
+
+        self.ROOT_INODE.blockMetadata = root_block
 
     def new_inode(self):
         next_id = self.__get_next_id()
@@ -179,34 +218,6 @@ class BuddyFSOperations(llfuse.Operations):
         self.tree = FSTree()
         self.gpg = gnupg.GPG()
 
-    def _commit_block_(self, blk_meta, blk_data):
-        ciphertext = self._encrypt_block_(blk_meta, blk_data)
-        BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
-
-    def _read_block_(self, blk_meta):
-        ciphertext = BuddyNode.get_node().get_root(blk_meta.id)
-        plaintext = self._decrypt_block_(blk_meta, blk_data)
-        return plaintext
-
-    def _encrypt_block_(self, blk_meta, blk_data):
-        if blk_meta.symkey is None:
-            blk_meta.symkey = Random.new().read(AES.block_size)
-
-        cipher = AESCipher(blk_meta.symkey)
-        ciphertext = cipher.encrypt(blk_data)
-        blk_meta.id = hashlib.sha256(ciphertext).hexdigest()
-        return ciphertext
-
-    def _decrypt_block_(self, blk_meta, ciph_data):
-        if blk_meta.symkey is None:
-            raise Exception("Key not provied while trying to decrypt block")
-
-        if hashlib.sha256(ciph_data) != blk_meta.id:
-            raise Exception("Integrity check failed: block ID differs from block digest")
-
-        cipher = AESCipher(blk_meta.symkey)
-        return cipher.decrypt(ciph_data)
-
     def statfs(self):
         stat_ = llfuse.StatvfsData()
 
@@ -298,9 +309,6 @@ class BuddyFSOperations(llfuse.Operations):
             logging.info('Did not find existing root inode pointer.'
                     ' Generating new root inode pointer.')
             self.tree.generate_root_inode()
-
-            # Find a better way to store this value
-            root = BuddyNode.get_node().set_root(key, self.tree.ROOT_INODE)
 
 if __name__ == '__main__':
     # pylint: disable-msg=C0103 
