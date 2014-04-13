@@ -2,7 +2,7 @@
 
 import gnupg
 
-class KeyManager(object):
+class KeyManager():
     def __init__(self, key_id):
         self.gpg = gnupg.GPG()
         self.test_key(key_id)

@@ -16,9 +16,9 @@ from time import time
 from twisted.internet import defer
 from Crypto import Random
 from Crypto.Cipher import AES
-
 sys.path.append(os.path.abspath(os.path.dirname(__file__) + '/..'))
 from kad_server.buddynode import BuddyNode
+from kad_server.buddyd import KadFacade
 from crypto.keys import KeyManager
 
 """ On-disk representation. """
@@ -80,17 +80,30 @@ def unblockr(lock, retval):
 
 class FSTree:
     """ Inode tree structure and associated utilities. """
-    def __init__(self, km):
+    def __init__(self, km, start_port):
         self.__current_id = 0
         self.inodes = {}
         self.ROOT_INODE = None
         self.inode_open_count = {}
         self.km = km
+        self.kf = KadFacade(start_port)
 
     def _commit_block_(self, blk_meta, blk_data):
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
-        BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
+        node = BuddyNode.get_node()
+        #set_root(blk_meta.id, ciphertext)
         print 'Created/updated block ID %s' % (blk_meta.id)
+
+        node.push_to_dht(self.km.gpg_key['fingerprint'], node.get_node_id())
+        print "Stored <pubkey, nodeid> mapping to DHT"
+        
+        pubkey_list = map(lambda x : x.get('keyid'), self.km.gpg.list_keys())
+        print "pubkey list : "
+        print pubkey_list
+         
+        peers = self.kf.get_all_peers_from_dht(pubkey_list)
+        print "Peer List based on the Web of Trust Social Circle: "
+        print peers
 
     def _read_block_(self, blk_meta):
         deferredVar = BuddyNode.get_node().get_root(blk_meta.id)
@@ -139,6 +152,7 @@ class FSTree:
         rootMeta = BlockMetadata()
         dirMeta = self.ROOT_INODE.blockMetadata = DirMetadata()
         self._commit_block_(rootMeta, dirMeta)
+        self.ROOT_INODE.bid = rootMeta.id
 
         self.ROOT_INODE.bid = rootMeta.id
 
@@ -280,10 +294,10 @@ class AESCipher:
 
 class BuddyFSOperations(llfuse.Operations):
     """BuddyFS implementation of llfuse Operations class."""
-    def __init__(self, key_id):
+    def __init__(self, key_id, start_port):
         super(BuddyFSOperations, self).__init__()
         self.km = KeyManager(key_id)
-        self.tree = FSTree(self.km)
+        self.tree = FSTree(self.km, start_port)
 
     def statfs(self):
         stat_ = llfuse.StatvfsData()
@@ -435,6 +449,7 @@ if __name__ == '__main__':
         help='Enable verbose logging')
     parser.add_argument('-k', '--key-id', help='Fingerprint of the GPG key to use.'
             'Please make sure to specify a key without a passphrase.', required=True)
+    parser.add_argument('-s', '--start-port', help='Port where the BuddyNode listens to.')
     parser.add_argument('mountpoint', help='Root directory of mounted BuddyFS')
     args = parser.parse_args()
 
@@ -444,7 +459,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logLevel)
 
-    operations = BuddyFSOperations(args.key_id)
+    operations = BuddyFSOperations(args.key_id, args.start_port)
     operations.auto_create_filesystem()
     
     logging.info('Mounting BuddyFS')

@@ -697,7 +697,6 @@ class Node(object):
 #        return outerDf
 
     def _persistState(self, *args):
-        print 'persist State'
         state = {'id': self.id,
                  'closestNodes': self.findNode(self.id)}
         now = int(time.time())
@@ -706,7 +705,6 @@ class Node(object):
     def _refreshNode(self):
         """ Periodically called to perform k-bucket refreshes and data
         replication/republishing as necessary """
-        print 'refreshNode called'
         df = self._refreshRoutingTable()
         df.addCallback(self._republishData)
         df.addCallback(self._scheduleNextNodeRefresh)
