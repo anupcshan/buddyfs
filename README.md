@@ -1,7 +1,7 @@
 BuddyFS
 =======
 
-A distributed, secure file system to share storage space on your computer with your friends. Your social network of friends is based on the web-of-trust model as seen in PGP systems.
+A secure, distributed file system to share storage space on your computer with your friends. Your social network of friends is based on the web-of-trust model as seen in PGP systems.
 
 Why a new Filesystem?
 ---------------------
