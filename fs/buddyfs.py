@@ -139,8 +139,8 @@ class FSTree:
         if blk_meta.symkey is None:
             raise Exception("Key not provied while trying to decrypt block")
 
-        if hashlib.sha256(ciph_data).hexdigest() != blk_meta.id:
-            raise Exception("Integrity check failed: block ID differs from block digest: Expected - %s, Actual - %s" % (blk_meta.id, hashlib.sha256(ciph_data).hexdigest()))
+#        if hashlib.sha256(ciph_data).hexdigest() != blk_meta.id:
+#            raise Exception("Integrity check failed: block ID differs from block digest: Expected - %s, Actual - %s" % (blk_meta.id, hashlib.sha256(ciph_data).hexdigest()))
 
         cipher = AESCipher(blk_meta.symkey)
         return cipher.decrypt(ciph_data)
@@ -423,7 +423,8 @@ class BuddyFSOperations(llfuse.Operations):
             # Special treatment for ROOT inode
             pass
         else:
-            for mblock in pparent.blockMetadata.files:
+            pparent = self.tree.get_inode_for_id(parent_inode.parent)
+            for mblock in pparent.blockMetadata.subdirs:
                 if mblock.id == parent_inode.bid:
                     metaStore = mblock
                     break
