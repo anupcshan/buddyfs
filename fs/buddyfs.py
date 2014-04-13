@@ -85,6 +85,7 @@ class FSTree:
     def _commit_block_(self, blk_meta, blk_data):
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
         BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
+        print 'Created/updated block ID %s' % (blk_meta.id)
 
     def _read_block_(self, blk_meta):
         deferredVar = BuddyNode.get_node().get_root(blk_meta.id)
@@ -98,7 +99,7 @@ class FSTree:
         unblock_read.release()
 
         plaintext = self._decrypt_block_(blk_meta, ciph[0].values()[0])
-        return plaintext
+        return pickle.loads(plaintext)
 
     def _encrypt_block_(self, blk_meta, blk_data):
         if blk_meta.symkey is None:
@@ -106,7 +107,8 @@ class FSTree:
 
         cipher = AESCipher(blk_meta.symkey)
         ciphertext = cipher.encrypt(blk_data)
-        blk_meta.id = hashlib.sha256(ciphertext).hexdigest()
+        if blk_meta.id is None:
+            blk_meta.id = hashlib.sha256(ciphertext).hexdigest()
         return ciphertext
 
     def _decrypt_block_(self, blk_meta, ciph_data):
@@ -129,8 +131,8 @@ class FSTree:
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
                 stat.S_IXGRP | stat.S_IXOTH)
 
-        rootMeta = self.ROOT_INODE.blockMetadata = BlockMetadata()
-        dirMeta = DirMetadata()
+        rootMeta = BlockMetadata()
+        dirMeta = self.ROOT_INODE.blockMetadata = DirMetadata()
         self._commit_block_(rootMeta, dirMeta)
 
         encrypted_root_block = self.gpg.encrypt(pickle.dumps(rootMeta),
@@ -146,9 +148,17 @@ class FSTree:
         decrypted_root_block = self.gpg.decrypt(root_block.values()[0])
 
         self.ROOT_INODE.blockMetadata = pickle.loads(decrypted_root_block.data)
-        print decrypted_root_block.data
 
         self.ROOT_INODE.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata)
+
+        for i in range(0, len(self.ROOT_INODE.blockMetadata.subdirs)):
+            print 'FOOOOOOOOOOO', i
+            self.ROOT_INODE.children.append(self.new_inode())
+            print 'Child id', self.ROOT_INODE.children[-1].id
+            self.ROOT_INODE.children[-1].blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata.subdirs[i])
+            self.ROOT_INODE.children[-1].parent = self.ROOT_INODE
+            self.ROOT_INODE.children[-1].name = self.ROOT_INODE.children[-1].blockMetadata.name
+            self.ROOT_INODE.children[-1].isDir = True
 
         self.ROOT_INODE.parent = self.ROOT_INODE.id
         self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
@@ -166,7 +176,8 @@ class FSTree:
         return self.__current_id
 
     def get_inode_for_id(self, _id):
-        print 'Get Inode for id %d' % (_id)
+        print 'Get Inode for id', _id
+        print self.inodes[_id]
         return self.inodes[_id]
 
     def get_parent(self, inode):
@@ -290,6 +301,7 @@ class BuddyFSOperations(llfuse.Operations):
         return self.tree.lookup(dir_id, name)
 
     def opendir(self, inode):
+        print 'Opendir for Inode %d' % (inode)
         return inode
 
     def readdir(self, inode, off):
@@ -337,7 +349,7 @@ class BuddyFSOperations(llfuse.Operations):
         self.tree._commit_block_(child_inode.blockMetadata, fileMeta)
 
         parent_inode.blockMetadata.files.append(fileMeta)
-        if parent_inode == self.ROOT_INODE:
+        if parent_inode == self.tree.ROOT_INODE:
             # Special treatment for ROOT inode
             pass
         else:
@@ -357,20 +369,27 @@ class BuddyFSOperations(llfuse.Operations):
         child_inode.permissions = mode
         parent_inode.children.append(child_inode.id)
 
-        child_inode.blockMetadata = BlockMetadata()
-        dirMeta = DirMetadata()
+        dirMeta = child_inode.blockMetadata = DirMetadata()
         dirMeta.name = name
-        self.tree._commit_block_(child_inode.blockMetadata, dirMeta)
+        blockMeta = BlockMetadata()
 
-        parent_inode.blockMetadata.subdirs.append(fileMeta)
-        metaStore = None
-        if parent_inode == self.ROOT_INODE:
+        self.tree._commit_block_(blockMeta, dirMeta)
+
+        parent_inode.blockMetadata.subdirs.append(blockMeta)
+        print parent_inode.blockMetadata.subdirs
+        metaStore = BlockMetadata()
+        if parent_inode == self.tree.ROOT_INODE:
             # Special treatment for ROOT inode
             pass
         else:
             metaStore = self.tree.get_inode_for_id(parent_inode.parent).blockMetadata
 
-        self.tree._commit_block_(parent_inode.blockMetadata, metaStore)
+        self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
+
+        if parent_inode == self.tree.ROOT_INODE:
+            encrypted_root_block = self.gpg.encrypt(pickle.dumps(metaStore), self.gpg_key['fingerprint'])
+            root = BuddyNode.get_node().set_root(self.gpg_key['fingerprint'], encrypted_root_block.data)
+
 
         return self.getattr(child_inode.id)
 
