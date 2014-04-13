@@ -5,7 +5,7 @@ A distributed, secure file system to share storage space on your computer with y
 
 Why a new Filesystem?
 ---------------------
-Though the existing filesystems seemingly provide the required the required flexibility, we strongly believe that the technology trends can enable a more powerful storage (and compute) environment. Following are the goals of our filesystem :
+Though the existing filesystems seemingly provide the required the required functionalities of a filesystem, we strongly believe that the technology trends can enable a more powerful storage (and compute) environment. Following are the goals of our filesystem :
 
 * Reliability - A file could be recreated from other peers even if the original host which created the file has lost/corrupted it.
 * Sharing - Other peers could access files which another peer has shared with him/her.
