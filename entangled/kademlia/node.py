@@ -11,6 +11,7 @@ import hashlib, random, time
 
 from twisted.internet import defer
 
+import time
 import constants
 import socket
 import routingtable
@@ -118,9 +119,12 @@ class Node(object):
                                    C{(<ip address>, (udp port>)}
         @type knownNodeAddresses: tuple
         """
+	print "Reached start of join"
         # Prepare the underlying Kademlia protocol
+	time.sleep(1)
         self._listeningPort = twisted.internet.reactor.listenUDP(self.port, self._protocol) #IGNORE:E1101
         # Create temporary contact information for the list of addresses of known nodes
+	print 'After starting the daemon. Collecting the bootstrap nodes'
         if knownNodeAddresses != None:
             bootstrapContacts = []
             for address, port in knownNodeAddresses:
@@ -129,6 +133,7 @@ class Node(object):
         else:
             bootstrapContacts = None
         # Initiate the Kademlia joining sequence - perform a search for this node's own ID
+	print len(bootstrapContacts) , ' bootstrap nodes ready. Starting the joining sequeuce'
         self._joinDeferred = self._iterativeFind(self.id, bootstrapContacts)
 #        #TODO: Refresh all k-buckets further away than this node's closest neighbour
 #        def getBucketAfterNeighbour(*args):
@@ -141,7 +146,7 @@ class Node(object):
         #protocol.reactor.callLater(10, self.printContacts)
         self._joinDeferred.addCallback(self._persistState)
         ip = socket.gethostbyname(socket.gethostname())
-        self.iterativeStore(self.id, ip, self.id, 0) 
+        self.iterativeStore(self.id, ip, self.id, 0) #Storing the IP address along with the node id. 
         print "JOIN : Pushed to DHT %s, %s, %s, %s" % (self.id, ip, self.id, '0')
         # Start refreshing k-buckets periodically, if necessary
         twisted.internet.reactor.callLater(constants.checkRefreshInterval, self._refreshNode) #IGNORE:E1101
@@ -178,7 +183,7 @@ class Node(object):
         # Prepare a callback for doing "STORE" RPC calls
         def executeStoreRPCs(nodes):
             #print '        .....execStoreRPCs called'
-            print 'Node count is : ', len(nodes)
+            print 'Starting the remote Store RPC calls. Node count is : ', len(nodes)
             if len(nodes) >= constants.k:
                 # If this node itself is closer to the key than the last (furthest) node in the list,
                 # we should store the value at ourselves as well
@@ -191,7 +196,9 @@ class Node(object):
 
             print 'Node count is : ', len(nodes)
             for contact in nodes:
+		print 'Remote calling the contact'
                 contact.store(key, value, originalPublisherID, age)
+		print 'End of remote call'
             return nodes
         # Find k nodes closest to the key...
         df = self.iterativeFindNode(key)
@@ -699,7 +706,7 @@ class Node(object):
     def _refreshNode(self):
         """ Periodically called to perform k-bucket refreshes and data
         replication/republishing as necessary """
-        #print 'refreshNode called'
+        print 'refreshNode called'
         df = self._refreshRoutingTable()
         df.addCallback(self._republishData)
         df.addCallback(self._scheduleNextNodeRefresh)

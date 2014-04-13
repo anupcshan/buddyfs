@@ -19,6 +19,4 @@ if __name__ == '__main__':
        sys.exit(1)
     
     " Check DHT for previously connected peers. Next step, check with trackers for the last connected user and get the peer list "
-
     twisted.internet.reactor.run()
-

@@ -1,22 +1,23 @@
 """
 This will be the fundamental part of the buddy daemon. Starts a Kademlia node and implements functionality for Node ID verification.
 """
-from entangled import kademlia
+from entangled.kademlia.node import Node
 from entangled.kademlia.datastore import SQLiteDataStore
 import cPickle as pickle
 import os
 import settings
 import time
 import hashlib
+import twisted
 
-class BuddyNode(kademlia.node.Node):
+class BuddyNode(Node):
     """ Kademlia node with a few helper functions for BuddyFS """
 
     node = None
 
     @classmethod
     def get_node(cls, start_port=settings.BUDDY_PORT, known_ip=None, known_port=None):
-        if BuddyNode.node:
+        if BuddyNode.node != None:
             return BuddyNode.node
         
         dbpath = settings.DBPATH+'/buddydht-%s.db' % start_port
@@ -26,19 +27,22 @@ class BuddyNode(kademlia.node.Node):
         if(known_ip == None or known_port == None):
             BuddyNode.node.joinNetwork([])
         else :
-            print 'Bootstrap with :', known_ip, ' ' , known_port
             BuddyNode.node.joinNetwork([(known_ip, known_port)])
-        return BuddyNode.node
-
+            print 'Bootstrap with :', known_ip, ' ' , known_port
+    
     def __init__(self, nodeid, udpPort, dataStore, routingTable=None, networkProtocol=None) :
         if nodeid is None:
             nodeid=self.get_node_id()
-        kademlia.node.Node.__init__(self, nodeid, udpPort, dataStore, routingTable, networkProtocol)
+        super(BuddyNode, self).__init__(nodeid, udpPort, dataStore, routingTable, networkProtocol)
+	print "Base node created"
         BuddyNode.node = self
+	return
+
 
     def get_node_id(self) :
         nodeid = ""
         if(os.path.isfile(".nodeid")):
+	    print "NodeID exists.."
             f = open(".nodeid","r")
             x = f.read()
             if x != "":
@@ -49,7 +53,7 @@ class BuddyNode(kademlia.node.Node):
         nodeid = self._generateID()
         print "New NodeID generated : ", nodeid
         file.write(nodeid)
-        file.close()
+	file.close()
         return nodeid
     
     def get_root(self, pubkey):
