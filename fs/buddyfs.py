@@ -65,6 +65,7 @@ class Inode:
         self.version = 1
         self.blockMetadata = None
         self.explored = False
+        self.bid = None
 
 def unblockr(lock, retval):
     def release_lock(args):
@@ -131,6 +132,7 @@ class FSTree:
         self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
                 stat.S_IXGRP | stat.S_IXOTH)
+        self.ROOT_INODE.bid = rootMeta.id
 
         rootMeta = BlockMetadata()
         dirMeta = self.ROOT_INODE.blockMetadata = DirMetadata()
@@ -196,15 +198,12 @@ class FSTree:
         return self.__current_id
 
     def get_inode_for_id(self, _id):
-        print 'Get Inode for id', _id
-        print self.inodes[_id]
         return self.inodes[_id]
 
     def get_parent(self, inode):
         return self.get_inode_for_id(inode).parent
 
     def lookup(self, dir_id, name):
-        print 'Lookup of name %s under dir_id %d' % (name, dir_id)
         inode = None
         if name == '.':
             inode = dir_id
@@ -325,7 +324,6 @@ class BuddyFSOperations(llfuse.Operations):
         return inode
 
     def readdir(self, inode, off):
-        print 'Readdir of inode %d at offset %d' % (inode, off)
         node = self.tree.get_inode_for_id(inode)
         
         i = off
