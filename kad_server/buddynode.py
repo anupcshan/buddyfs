@@ -26,6 +26,7 @@ class BuddyNode(kademlia.node.Node):
         if(known_ip == None or known_port == None):
             BuddyNode.node.joinNetwork([])
         else :
+            print 'Bootstrap with :', known_ip, ' ' , known_port
             BuddyNode.node.joinNetwork([(known_ip, known_port)])
         return BuddyNode.node
 

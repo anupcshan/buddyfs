@@ -12,6 +12,7 @@ import hashlib, random, time
 from twisted.internet import defer
 
 import constants
+import socket
 import routingtable
 import datastore
 import protocol
@@ -98,6 +99,11 @@ class Node(object):
                     contact = Contact(contactTriple[0], contactTriple[1], contactTriple[2], self._protocol)
                     self._routingTable.addContact(contact)
 
+    def push_to_dht(self, key, value) :
+        key = hashlib.sha1(key).digest()
+        self.iterativeStore(key,value,self.id)
+        return
+ 
     def __del__(self):
         self._persistState()
         self._listeningPort.stopListening()
@@ -134,6 +140,9 @@ class Node(object):
 #        df.addCallback(self._refreshKBuckets)
         #protocol.reactor.callLater(10, self.printContacts)
         self._joinDeferred.addCallback(self._persistState)
+        ip = socket.gethostbyname(socket.gethostname())
+        self.iterativeStore(self.id, ip, self.id, 0) 
+        print "JOIN : Pushed to DHT %s, %s, %s, %s" % (self.id, ip, self.id, '0')
         # Start refreshing k-buckets periodically, if necessary
         twisted.internet.reactor.callLater(constants.checkRefreshInterval, self._refreshNode) #IGNORE:E1101
 
@@ -169,14 +178,18 @@ class Node(object):
         # Prepare a callback for doing "STORE" RPC calls
         def executeStoreRPCs(nodes):
             #print '        .....execStoreRPCs called'
+            print 'Node count is : ', len(nodes)
             if len(nodes) >= constants.k:
                 # If this node itself is closer to the key than the last (furthest) node in the list,
                 # we should store the value at ourselves as well
                 if self._routingTable.distance(key, self.id) < self._routingTable.distance(key, nodes[-1].id):
                     nodes.pop()
                     self.store(key, value, originalPublisherID=originalPublisherID, age=age)
+                    print "Storing :" , key , " - ", value
             else:
                 self.store(key, value, originalPublisherID=originalPublisherID, age=age)
+
+            print 'Node count is : ', len(nodes)
             for contact in nodes:
                 contact.store(key, value, originalPublisherID, age)
             return nodes
@@ -438,6 +451,7 @@ class Node(object):
                  return a list of the k closest nodes to the specified key
         @rtype: twisted.internet.defer.Deferred
         """
+        print 'RPC call made ' , rpc
         if rpc != 'findNode':
             findValue = True
         else:
@@ -448,6 +462,7 @@ class Node(object):
             if key != self.id:
                 # Update the "last accessed" timestamp for the appropriate k-bucket
                 self._routingTable.touchKBucket(key)
+            print 'Bootstrap nodes before iterativeFind : ' , len(shortlist)
             if len(shortlist) == 0:
                 # This node doesn't know of any other nodes
                 fakeDf = defer.Deferred()
@@ -456,7 +471,8 @@ class Node(object):
         else:
             # This is used during the bootstrap process; node ID's are most probably fake
             shortlist = startupShortlist
-
+            for peer in shortlist:
+                print peer
         # List of active queries; len() indicates number of active probes
         # - using lists for these variables, because Python doesn't allow binding a new value to a name in an enclosing (non-global) scope
         activeProbes = []
@@ -674,6 +690,7 @@ class Node(object):
 #        return outerDf
 
     def _persistState(self, *args):
+        print 'persist State'
         state = {'id': self.id,
                  'closestNodes': self.findNode(self.id)}
         now = int(time.time())
