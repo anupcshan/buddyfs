@@ -9,13 +9,58 @@ import settings
 from kad_server.buddynode import BuddyNode
 from twisted.internet.protocol import Protocol, Factory
 
+from os.path import expanduser
+home = expanduser("~")
+
 class RPCServer(Protocol):
-  
+
+  def __init__(self):
+    self.data = ""
+    
   def write_block(self):
-    pass
+    """ ~/.buddyrepo is the repository by default (configurable in settings.py file). Filename will be the blockID and contents the block data. Blocks will be sharded based on the first 8 bits into 16 bins """
+    reponame = settings.REPONAME
+    if not os.path.exists(home+"/"+reponame):
+      os.mkdir(home+"/"+reponame+"/", 0755)
+    
+    block_bin = str(self.data["id"]%16)
+    block_bin = block_bin.zfill(3)
+    if not os.path.exists(home+"/"+reponame+"/"+block_bin):
+      os.mkdir(home+"/"+reponame+"/"+block_bin+"/", 0755)
+
+    with open(home+"/"+reponame+"/"+block_bin+"/"+str(self.data["id"]), "w+") as f:
+      print "File creation in process : " + home+"/"+reponame+"/"+block_bin+"/"+str(self.data["id"])
+      print "Creating file with content " + self.data["data"]
+      try:
+       f.write(self.data["data"])
+       f.flush()
+       f.close()
+      except IOError as (errno,strerror):
+       print "I/O error({0}): {1}".format(errno, strerror)
+
+    response = {}
+    response["result"] = "ack"
+    self.transport.write(json.dumps(response))
+    return
 
   def read_block(self):
-    pass
+    reponame = settings.REPONAME
+    block_bin = str(self.data["id"]%16)
+    block_bin = block_bin.zfill(3)
+
+    if not os.path.exists(home+"/"+reponame+"/"+block_bin+"/"+str(self.data["id"])):
+      response = {}
+      response["type"] = "error"
+      response["reason"] = "content unavailable"
+      self.transport.write(json.dumps(response))
+      return
+
+    f = open(home+"/"+reponame+"/"+block_bin+"/"+str(self.data["id"]), 'r')
+    response = {}
+    response["data"] = f.read()
+    f.close()
+    self.transport.write(json.dumps(response))     
+    return 
 
   def diskusage(self):
     st = os.statvfs(".")
@@ -29,6 +74,7 @@ class RPCServer(Protocol):
   def dataReceived(self, data):
     try:
       cmd = json.loads(data)
+      self.data = cmd
       command = cmd["command"]
       if(command=="du"):
         self.diskusage()
