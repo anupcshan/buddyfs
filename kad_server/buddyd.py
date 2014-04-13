@@ -8,11 +8,26 @@ sys.path.append(os.path.abspath(os.path.dirname(__file__) + '/..'))
 import settings
 from kad_server.buddynode import BuddyNode
 from twisted.internet.protocol import Protocol, Factory
-
+from entangled.kademlia.datastore import SQLiteDataStore
 from os.path import expanduser
 home = expanduser("~")
 
 daemon_port = "9000"
+
+class KadFacade(object):
+
+  def __init__(self, start_port):
+    self.dbpath = settings.DBPATH + '/buddydht-%s.db' % start_port
+    self.kadstore = SQLiteDataStore(dbFile = self.dbpath)
+
+  def get_all_peers_from_dht(self, pubkeys):
+    """ Getting the list of all public keys on a circle's DHT is tough because there is no content specific flag on the hash table entries. """
+    keys = self.kadstore.keys()
+    return keys
+   
+   
+  def get_peers(pubkeys):
+   all_peers = get_all_peers_from_dht() 
 
 class RPCServer(Protocol):
 
