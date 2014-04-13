@@ -10,6 +10,7 @@ import os
 import stat
 import sys
 from time import time
+from twisted.internet import defer
 from Crypto import Random
 from Crypto.Cipher import AES
 
@@ -282,16 +283,18 @@ class BuddyFSOperations(llfuse.Operations):
         parent_inode.children.append(child_inode.id)
         return self.getattr(child_inode.id)
 
+    @defer.inlineCallbacks
     def auto_create_filesystem(self):
         """
         Automatically setup filesystem structure on backend providers.
         """
 
         key = self.gpg.list_keys()[0]['fingerprint']
-        try:
-            root = BuddyNode.get_node().get_root(key)
+        root = yield BuddyNode.get_node().get_root(key)
+        
+        if root:
             self.tree.register_root_inode(root)
-        except KeyError:
+        else:
             logging.info('Did not find existing root inode pointer.'
                     ' Generating new root inode pointer.')
             self.tree.generate_root_inode()
