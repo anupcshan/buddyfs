@@ -213,10 +213,14 @@ class AESCipher:
 
 class BuddyFSOperations(llfuse.Operations):
     """BuddyFS implementation of llfuse Operations class."""
-    def __init__(self):
+    def __init__(self, key_id):
         super(BuddyFSOperations, self).__init__()
         self.tree = FSTree()
         self.gpg = gnupg.GPG()
+        self.gpg_key = filter (lambda x :
+                x.get('keyid').find(key_id) >= 0, self.gpg.list_keys(True))
+        if len(self.gpg_key) != 1:
+            raise 'Invalid or non-existent GPG key specified'
 
     def statfs(self):
         stat_ = llfuse.StatvfsData()
@@ -300,7 +304,7 @@ class BuddyFSOperations(llfuse.Operations):
         Automatically setup filesystem structure on backend providers.
         """
 
-        key = self.gpg.list_keys()[0]['fingerprint']
+        key = self.gpg_key['fingerprint']
         root = yield BuddyNode.get_node().get_root(key)
         
         if root:
@@ -315,6 +319,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='BuddyFS')
     parser.add_argument('-v', '--verbose', action='store_true',
         help='Enable verbose logging')
+    parser.add_argument('-k', '--key-id', help='Fingerprint of the GPG key to use.'
+            'Please make sure to specify a key without a passphrase.', required=True)
     parser.add_argument('mountpoint', help='Root directory of mounted BuddyFS')
     args = parser.parse_args()
 
@@ -324,7 +330,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logLevel)
 
-    operations = BuddyFSOperations()
+    operations = BuddyFSOperations(args.key_id)
     operations.auto_create_filesystem()
     
     logging.info('Mounting BuddyFS')
