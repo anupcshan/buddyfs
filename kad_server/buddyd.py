@@ -1,9 +1,40 @@
 import sys
+import os
 import os.path
+import json
 import twisted
 sys.path.append(os.path.abspath(os.path.dirname(__file__) + '/..'))
 import settings
 from kad_server.buddynode import BuddyNode
+from twisted.internet.protocol import Protocol, Factory
+
+class RPCServer(Protocol):
+  def dataReceived(self, data):
+    try:
+      cmd = json.loads(data)
+      if(cmd["command"])=="du":
+        st = os.statvfs(".")
+        response = {}
+        response["total_bytes"] = st.f_blocks * st.f_frsize
+        response["free_bytes"] = st.f_bavail * st.f_frsize
+        response["used_bytes"] = (st.f_blocks - st.f_bfree) * st.f_frsize
+        self.transport.write(json.dumps(response))
+      else:
+        errorObj = {}
+        errorObj["type"] = "Error"
+        errorObj["reason"] = "Unsupported command"
+        self.transport.write(json.dumps(errorObj))
+    except :
+      errorObj = {}
+      errorObj["type"] = "Error"
+      errorObj["reason"] = "Invalid Format"
+      self.transport.write(json.dumps(errorObj))
+
+    return
+
+factory = Factory()
+factory.protocol = RPCServer
+twisted.internet.reactor.listenTCP(7777, factory)
 
 if __name__ == '__main__':
 
