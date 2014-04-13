@@ -2,8 +2,10 @@
 """BuddyFS FUSE filesystem."""
 
 import argparse
+import cPickle as pickle
 import errno
 import gnupg
+import hashlib
 import llfuse
 import logging
 import os
@@ -59,14 +61,45 @@ class Inode:
         self.children = []
         self.parent = None
         self.version = 1
+        self.blockMetadata = None
 
 class FSTree:
     """ Inode tree structure and associated utilities. """
-    def __init__(self):
+    def __init__(self, gpg, gpg_key):
         self.__current_id = 0
         self.inodes = {}
         self.ROOT_INODE = None
         self.inode_open_count = {}
+        self.gpg_key = gpg_key
+        self.gpg = gpg
+
+    def _commit_block_(self, blk_meta, blk_data):
+        ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
+        BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
+
+    def _read_block_(self, blk_meta):
+        ciphertext = BuddyNode.get_node().get_root(blk_meta.id)
+        plaintext = self._decrypt_block_(blk_meta, blk_data)
+        return plaintext
+
+    def _encrypt_block_(self, blk_meta, blk_data):
+        if blk_meta.symkey is None:
+            blk_meta.symkey = Random.new().read(AES.block_size)
+
+        cipher = AESCipher(blk_meta.symkey)
+        ciphertext = cipher.encrypt(blk_data)
+        blk_meta.id = hashlib.sha256(ciphertext).hexdigest()
+        return ciphertext
+
+    def _decrypt_block_(self, blk_meta, ciph_data):
+        if blk_meta.symkey is None:
+            raise Exception("Key not provied while trying to decrypt block")
+
+        if hashlib.sha256(ciph_data) != blk_meta.id:
+            raise Exception("Integrity check failed: block ID differs from block digest")
+
+        cipher = AESCipher(blk_meta.symkey)
+        return cipher.decrypt(ciph_data)
 
     def generate_root_inode(self):
         if self.ROOT_INODE is not None:
@@ -78,13 +111,28 @@ class FSTree:
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
                 stat.S_IXGRP | stat.S_IXOTH)
 
-    def register_root_inode(self, root_inode):
+        rootMeta = self.ROOT_INODE.blockMetadata = BlockMetadata()
+        dirMeta = DirMetadata()
+        self._commit_block_(rootMeta, dirMeta)
+
+        encrypted_root_block = self.gpg.encrypt(pickle.dumps(rootMeta),
+                self.gpg_key['fingerprint'])
+        root = BuddyNode.get_node().set_root(self.gpg_key['fingerprint'], encrypted_root_block.data)
+
+    def register_root_inode(self, root_block):
         if self.ROOT_INODE is not None:
             raise "Attempting to overwrite root inode"
 
-        self.ROOT_INODE = root_inode
-        self.inodes[root_inode.id] = root_inode
-        self.__current_id += 1
+        self.ROOT_INODE = self.new_inode()
+
+        decrypted_root_block = self.gpg.decrypt(root_block.values()[0])
+
+        self.ROOT_INODE.blockMetadata = pickle.loads(decrypted_root_block.data)
+    
+        self.ROOT_INODE.parent = self.ROOT_INODE.id
+        self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
+                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
+                stat.S_IXGRP | stat.S_IXOTH)
 
     def new_inode(self):
         next_id = self.__get_next_id()
@@ -163,10 +211,9 @@ class AESCipher:
         raw = pad(raw)
         iv = Random.new().read(AES.block_size)
         cipher = AES.new(self.key, AES.MODE_CBC, iv)
-        return base64.b64encode(iv + cipher.encrypt(raw)) 
+        return iv + cipher.encrypt(raw)
 
     def decrypt(self, enc):
-        enc = base64.b64decode(enc)
         iv = enc[:16]
         cipher = AES.new(self.key, AES.MODE_CBC, iv)
         return unpad(cipher.decrypt(enc[16:]))
@@ -174,38 +221,31 @@ class AESCipher:
 
 class BuddyFSOperations(llfuse.Operations):
     """BuddyFS implementation of llfuse Operations class."""
-    def __init__(self):
+    def __init__(self, key_id):
         super(BuddyFSOperations, self).__init__()
-        self.tree = FSTree()
         self.gpg = gnupg.GPG()
+        self.test_key(key_id)
+        self.tree = FSTree(self.gpg, self.gpg_key)
 
-    def _commit_block_(self, blk_meta, blk_data):
-        ciphertext = self._encrypt_block_(blk_meta, blk_data)
-        BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
+    def test_key(self, key_id):
+        self.gpg_key = filter (lambda x :
+                x.get('keyid').find(key_id) >= 0, self.gpg.list_keys(True))
+        if len(self.gpg_key) != 1:
+            raise 'Invalid or non-existent GPG key specified'
 
-    def _read_block_(self, blk_meta):
-        ciphertext = BuddyNode.get_node().get_root(blk_meta.id)
-        plaintext = self._decrypt_block_(blk_meta, blk_data)
-        return plaintext
+        self.gpg_key = self.gpg_key[0]
+        test_encrypt = self.gpg.encrypt('0xDEADBEEF', self.gpg_key['fingerprint'])
+        
+        if not test_encrypt.ok:
+            raise 'Unable to encrypt to provided fingerprint'
 
-    def _encrypt_block_(self, blk_meta, blk_data):
-        if blk_meta.symkey is None:
-            blk_meta.symkey = Random.new().read(AES.block_size)
+        test_decrypt = self.gpg.decrypt(test_encrypt.data)
 
-        cipher = AESCipher(blk_meta.symkey)
-        ciphertext = cipher.encrypt(blk_data)
-        blk_meta.id = hashlib.sha256(ciphertext).hexdigest()
-        return ciphertext
+        if not test_decrypt.ok:
+            raise 'Unable to decrypt messages to provided fingerprint'
 
-    def _decrypt_block_(self, blk_meta, ciph_data):
-        if blk_meta.symkey is None:
-            raise Exception("Key not provied while trying to decrypt block")
-
-        if hashlib.sha256(ciph_data) != blk_meta.id:
-            raise Exception("Integrity check failed: block ID differs from block digest")
-
-        cipher = AESCipher(blk_meta.symkey)
-        return cipher.decrypt(ciph_data)
+        if test_decrypt.data != '0xDEADBEEF':
+            raise 'GPG binaries unable to encrypt or decrypt accurately'
 
     def statfs(self):
         stat_ = llfuse.StatvfsData()
@@ -289,7 +329,7 @@ class BuddyFSOperations(llfuse.Operations):
         Automatically setup filesystem structure on backend providers.
         """
 
-        key = self.gpg.list_keys()[0]['fingerprint']
+        key = self.gpg_key['fingerprint']
         root = yield BuddyNode.get_node().get_root(key)
         
         if root:
@@ -299,14 +339,13 @@ class BuddyFSOperations(llfuse.Operations):
                     ' Generating new root inode pointer.')
             self.tree.generate_root_inode()
 
-            # Find a better way to store this value
-            root = BuddyNode.get_node().set_root(key, self.tree.ROOT_INODE)
-
 if __name__ == '__main__':
     # pylint: disable-msg=C0103 
     parser = argparse.ArgumentParser(prog='BuddyFS')
     parser.add_argument('-v', '--verbose', action='store_true',
         help='Enable verbose logging')
+    parser.add_argument('-k', '--key-id', help='Fingerprint of the GPG key to use.'
+            'Please make sure to specify a key without a passphrase.', required=True)
     parser.add_argument('mountpoint', help='Root directory of mounted BuddyFS')
     args = parser.parse_args()
 
@@ -316,7 +355,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logLevel)
 
-    operations = BuddyFSOperations()
+    operations = BuddyFSOperations(args.key_id)
     operations.auto_create_filesystem()
     
     logging.info('Mounting BuddyFS')
