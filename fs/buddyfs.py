@@ -2,8 +2,10 @@
 """BuddyFS FUSE filesystem."""
 
 import argparse
+import cPickle as pickle
 import errno
 import gnupg
+import hashlib
 import llfuse
 import logging
 import os
@@ -63,14 +65,16 @@ class Inode:
 
 class FSTree:
     """ Inode tree structure and associated utilities. """
-    def __init__(self):
+    def __init__(self, gpg, gpg_key):
         self.__current_id = 0
         self.inodes = {}
         self.ROOT_INODE = None
         self.inode_open_count = {}
+        self.gpg_key = gpg_key
+        self.gpg = gpg
 
     def _commit_block_(self, blk_meta, blk_data):
-        ciphertext = self._encrypt_block_(blk_meta, blk_data)
+        ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
         BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
 
     def _read_block_(self, blk_meta):
@@ -109,21 +113,26 @@ class FSTree:
 
         rootMeta = self.ROOT_INODE.blockMetadata = BlockMetadata()
         dirMeta = DirMetadata()
-        self._commit_block_(dirMeta, rootMeta)
+        self._commit_block_(rootMeta, dirMeta)
 
-        root = BuddyNode.get_node().set_root(key, self.ROOT_INODE)
+        encrypted_root_block = self.gpg.encrypt(pickle.dumps(rootMeta),
+                self.gpg_key['fingerprint'])
+        root = BuddyNode.get_node().set_root(self.gpg_key['fingerprint'], encrypted_root_block.data)
 
     def register_root_inode(self, root_block):
         if self.ROOT_INODE is not None:
             raise "Attempting to overwrite root inode"
 
         self.ROOT_INODE = self.new_inode()
+
+        decrypted_root_block = self.gpg.decrypt(root_block.values()[0])
+
+        self.ROOT_INODE.blockMetadata = pickle.loads(decrypted_root_block.data)
+    
         self.ROOT_INODE.parent = self.ROOT_INODE.id
         self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
                 stat.S_IXGRP | stat.S_IXOTH)
-
-        self.ROOT_INODE.blockMetadata = root_block
 
     def new_inode(self):
         next_id = self.__get_next_id()
@@ -202,10 +211,9 @@ class AESCipher:
         raw = pad(raw)
         iv = Random.new().read(AES.block_size)
         cipher = AES.new(self.key, AES.MODE_CBC, iv)
-        return base64.b64encode(iv + cipher.encrypt(raw)) 
+        return iv + cipher.encrypt(raw)
 
     def decrypt(self, enc):
-        enc = base64.b64decode(enc)
         iv = enc[:16]
         cipher = AES.new(self.key, AES.MODE_CBC, iv)
         return unpad(cipher.decrypt(enc[16:]))
@@ -215,9 +223,9 @@ class BuddyFSOperations(llfuse.Operations):
     """BuddyFS implementation of llfuse Operations class."""
     def __init__(self, key_id):
         super(BuddyFSOperations, self).__init__()
-        self.tree = FSTree()
         self.gpg = gnupg.GPG()
         self.test_key(key_id)
+        self.tree = FSTree(self.gpg, self.gpg_key)
 
     def test_key(self, key_id):
         self.gpg_key = filter (lambda x :

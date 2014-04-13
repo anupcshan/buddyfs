@@ -60,5 +60,5 @@ class BuddyNode(kademlia.node.Node):
     def set_root(self, pubkey, root_inode):
         datastore = SQLiteDataStore(dbFile = settings.DBPATH+'/buddydht.db')
         key = hashlib.sha1("root_"+pubkey).digest()
-        self.iterativeStore(key, pickle.dumps(root_inode, pickle.HIGHEST_PROTOCOL), self.get_node_id(), 0)
+        self.iterativeStore(key, root_inode, self.get_node_id(), 0)
 
