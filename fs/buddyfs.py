@@ -19,6 +19,7 @@ from Crypto.Cipher import AES
 
 sys.path.append(os.path.abspath(os.path.dirname(__file__) + '/..'))
 from kad_server.buddynode import BuddyNode
+from crypto.keys import KeyManager
 
 """ On-disk representation. """
 class BlockMetadata:
@@ -76,13 +77,12 @@ def unblockr(lock, retval):
 
 class FSTree:
     """ Inode tree structure and associated utilities. """
-    def __init__(self, gpg, gpg_key):
+    def __init__(self, km):
         self.__current_id = 0
         self.inodes = {}
         self.ROOT_INODE = None
         self.inode_open_count = {}
-        self.gpg_key = gpg_key
-        self.gpg = gpg
+        self.km = km
 
     def _commit_block_(self, blk_meta, blk_data):
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
@@ -138,9 +138,9 @@ class FSTree:
         dirMeta = self.ROOT_INODE.blockMetadata = DirMetadata()
         self._commit_block_(rootMeta, dirMeta)
 
-        encrypted_root_block = self.gpg.encrypt(pickle.dumps(rootMeta),
-                self.gpg_key['fingerprint'])
-        root = BuddyNode.get_node().set_root(self.gpg_key['fingerprint'], encrypted_root_block.data)
+        encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(rootMeta),
+                self.km.gpg_key['fingerprint'])
+        root = BuddyNode.get_node().set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
 
     def register_root_inode(self, root_block):
         if self.ROOT_INODE is not None:
@@ -148,7 +148,7 @@ class FSTree:
 
         self.ROOT_INODE = self.new_inode()
 
-        decrypted_root_block = self.gpg.decrypt(root_block.values()[0])
+        decrypted_root_block = self.km.gpg.decrypt(root_block.values()[0])
 
         self.ROOT_INODE.blockMetadata = pickle.loads(decrypted_root_block.data)
 
@@ -274,29 +274,8 @@ class BuddyFSOperations(llfuse.Operations):
     """BuddyFS implementation of llfuse Operations class."""
     def __init__(self, key_id):
         super(BuddyFSOperations, self).__init__()
-        self.gpg = gnupg.GPG()
-        self.test_key(key_id)
-        self.tree = FSTree(self.gpg, self.gpg_key)
-
-    def test_key(self, key_id):
-        self.gpg_key = filter (lambda x :
-                x.get('keyid').find(key_id) >= 0, self.gpg.list_keys(True))
-        if len(self.gpg_key) != 1:
-            raise 'Invalid or non-existent GPG key specified'
-
-        self.gpg_key = self.gpg_key[0]
-        test_encrypt = self.gpg.encrypt('0xDEADBEEF', self.gpg_key['fingerprint'])
-        
-        if not test_encrypt.ok:
-            raise 'Unable to encrypt to provided fingerprint'
-
-        test_decrypt = self.gpg.decrypt(test_encrypt.data)
-
-        if not test_decrypt.ok:
-            raise 'Unable to decrypt messages to provided fingerprint'
-
-        if test_decrypt.data != '0xDEADBEEF':
-            raise 'GPG binaries unable to encrypt or decrypt accurately'
+        self.km = KeyManager(key_id)
+        self.tree = FSTree(self.km)
 
     def statfs(self):
         stat_ = llfuse.StatvfsData()
@@ -405,8 +384,8 @@ class BuddyFSOperations(llfuse.Operations):
         self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
 
         if parent_inode == self.tree.ROOT_INODE:
-            encrypted_root_block = self.gpg.encrypt(pickle.dumps(metaStore), self.gpg_key['fingerprint'])
-            root = BuddyNode.get_node().set_root(self.gpg_key['fingerprint'], encrypted_root_block.data)
+            encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore), self.km.gpg_key['fingerprint'])
+            root = BuddyNode.get_node().set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
 
 
         return self.getattr(child_inode.id)
@@ -417,7 +396,7 @@ class BuddyFSOperations(llfuse.Operations):
         Automatically setup filesystem structure on backend providers.
         """
 
-        key = self.gpg_key['fingerprint']
+        key = self.km.gpg_key['fingerprint']
         root = yield BuddyNode.get_node().get_root(key)
         
         if root:
