@@ -43,6 +43,7 @@ class DirMetadata:
         self.mtime = time()
         self.name = None
         self.files = []
+        self.subdirs = []
         self.version = 1        # Again, needed?
 
 
@@ -77,10 +78,11 @@ class FSTree:
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
         BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
 
+    @defer.inlineCallbacks
     def _read_block_(self, blk_meta):
-        ciphertext = BuddyNode.get_node().get_root(blk_meta.id)
-        plaintext = self._decrypt_block_(blk_meta, blk_data)
-        return plaintext
+        ciphertext = yield BuddyNode.get_node().get_root(blk_meta.id)
+        plaintext = self._decrypt_block_(blk_meta, ciphertext)
+        defer.returnValue(plaintext)
 
     def _encrypt_block_(self, blk_meta, blk_data):
         if blk_meta.symkey is None:
@@ -128,7 +130,10 @@ class FSTree:
         decrypted_root_block = self.gpg.decrypt(root_block.values()[0])
 
         self.ROOT_INODE.blockMetadata = pickle.loads(decrypted_root_block.data)
-    
+        print decrypted_root_block.data
+
+        self.ROOT_INODE.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata)
+
         self.ROOT_INODE.parent = self.ROOT_INODE.id
         self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
@@ -309,6 +314,20 @@ class BuddyFSOperations(llfuse.Operations):
         child_inode.permissions = mode
         parent_inode.children.append(child_inode.id)
         self.open(child_inode.id, flags)
+
+        child_inode.blockMetadata = BlockMetadata()
+        fileMeta = FileMetadata()
+        fileMeta.name = name
+        self.tree._commit_block_(child_inode.blockMetadata, fileMeta)
+
+        parent_inode.blockMetadata.files.append(fileMeta)
+        if parent_inode == self.ROOT_INODE:
+            # Special treatment for ROOT inode
+            pass
+        else:
+            pparent = self.tree.get_inode_for_id(parent_inode.parent)
+            self.tree._commit_block_(parent_inode.blockMetadata, pparent.blockMetadata)
+
         return (child_inode.id, self.getattr(child_inode.id))
 
     def mkdir(self, parent_inode_id, name, mode, ctx):
@@ -321,6 +340,22 @@ class BuddyFSOperations(llfuse.Operations):
         child_inode.name = name
         child_inode.permissions = mode
         parent_inode.children.append(child_inode.id)
+
+        child_inode.blockMetadata = BlockMetadata()
+        dirMeta = DirMetadata()
+        dirMeta.name = name
+        self.tree._commit_block_(child_inode.blockMetadata, dirMeta)
+
+        parent_inode.blockMetadata.subdirs.append(fileMeta)
+        metaStore = None
+        if parent_inode == self.ROOT_INODE:
+            # Special treatment for ROOT inode
+            pass
+        else:
+            metaStore = self.tree.get_inode_for_id(parent_inode.parent).blockMetadata
+
+        self.tree._commit_block_(parent_inode.blockMetadata, metaStore)
+
         return self.getattr(child_inode.id)
 
     @defer.inlineCallbacks
