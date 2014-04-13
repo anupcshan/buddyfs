@@ -29,6 +29,8 @@ class BlockMetadata:
         self.symkey = None
         self.quorum = []
 
+DEFAULT_BLOCK_SIZE = 65536
+
 class FileMetadata:
     """ File metadata structure. """
     def __init__(self):
@@ -36,6 +38,7 @@ class FileMetadata:
         self.mtime = time()
         self.name = None
         self.length = 0
+        self.block_size = DEFAULT_BLOCK_SIZE
         self.blocks = []
         self.version = 1        # Is this really needed?
 
@@ -151,6 +154,8 @@ class FSTree:
         self._commit_block_(rootMeta, dirMeta)
         self.ROOT_INODE.bid = rootMeta.id
 
+        self.ROOT_INODE.bid = rootMeta.id
+
         encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(rootMeta),
                 self.km.gpg_key['fingerprint'])
         root = BuddyNode.get_node().set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
@@ -162,9 +167,8 @@ class FSTree:
         self.ROOT_INODE = self.new_inode()
 
         decrypted_root_block = self.km.gpg.decrypt(root_block.values()[0])
-
         self.ROOT_INODE.blockMetadata = pickle.loads(decrypted_root_block.data)
-
+        self.ROOT_INODE.bid = self.ROOT_INODE.blockMetadata.id
         self.ROOT_INODE.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata)
 
         self._explore_childnodes_(self.ROOT_INODE)
@@ -192,13 +196,12 @@ class FSTree:
         for i in range(0, len(inode.blockMetadata.files)):
             child = self.new_inode()
             inode.children.append(child.id)
-            child.blockMetadata = self._read_block_(inode.blockMetadata.subdirs[i])
+            child.blockMetadata = self._read_block_(inode.blockMetadata.files[i])
             child.parent = inode.id
             child.name = child.blockMetadata.name
-            child.isDir = True
+            child.isDir = False
             child.permissions = (stat.S_IRUSR | stat.S_IWUSR |
-                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
-                stat.S_IXGRP | stat.S_IXOTH)
+                stat.S_IRGRP | stat.S_IROTH | stat.S_IFREG)
 
     def new_inode(self):
         next_id = self.__get_next_id()
@@ -209,6 +212,12 @@ class FSTree:
     def __get_next_id(self):
         self.__current_id += 1
         return self.__current_id
+
+    def write(self, fh, offset, buf):
+        node = self.get_inode_for_id(fh)
+        bs = node.blockMetadata.block_size
+
+        parent = self.get_inode_for_id(self.get_parent(fh))
 
     def get_inode_for_id(self, _id):
         return self.inodes[_id]
@@ -353,18 +362,26 @@ class BuddyFSOperations(llfuse.Operations):
         parent_inode.children.append(child_inode.id)
         self.open(child_inode.id, flags)
 
-        child_inode.blockMetadata = BlockMetadata()
-        fileMeta = FileMetadata()
+        blockMeta = BlockMetadata()
+        child_inode.blockMetadata = fileMeta = FileMetadata()
         fileMeta.name = name
-        self.tree._commit_block_(child_inode.blockMetadata, fileMeta)
+        self.tree._commit_block_(blockMeta, fileMeta)
+        child_inode.bid = blockMeta.id
 
-        parent_inode.blockMetadata.files.append(fileMeta)
+        parent_inode.blockMetadata.files.append(blockMeta)
         if parent_inode == self.tree.ROOT_INODE:
             # Special treatment for ROOT inode
-            pass
+            metaStore = BlockMetadata()
+            self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
+            encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore), self.km.gpg_key['fingerprint'])
+            root = BuddyNode.get_node().set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
         else:
             pparent = self.tree.get_inode_for_id(parent_inode.parent)
-            self.tree._commit_block_(parent_inode.blockMetadata, pparent.blockMetadata)
+            for mblock in pparent.blockMetadata.files:
+                if mblock.id == parent_inode.bid:
+                    self.tree._commit_block_(mblock, parent.blockMetadata)
+                    break
+
 
         return (child_inode.id, self.getattr(child_inode.id))
 
@@ -388,11 +405,16 @@ class BuddyFSOperations(llfuse.Operations):
         parent_inode.blockMetadata.subdirs.append(blockMeta)
         print parent_inode.blockMetadata.subdirs
         metaStore = BlockMetadata()
+
+        child_inode.bid = blockMeta.id
         if parent_inode == self.tree.ROOT_INODE:
             # Special treatment for ROOT inode
             pass
         else:
-            metaStore = self.tree.get_inode_for_id(parent_inode.parent).blockMetadata
+            for mblock in pparent.blockMetadata.files:
+                if mblock.id == parent_inode.bid:
+                    metaStore = mblock
+                    break
 
         self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
 
