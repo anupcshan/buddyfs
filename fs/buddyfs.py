@@ -11,6 +11,7 @@ import logging
 import os
 import stat
 import sys
+import threading
 from time import time
 from twisted.internet import defer
 from Crypto import Random
@@ -64,6 +65,13 @@ class Inode:
         self.version = 1
         self.blockMetadata = None
 
+def unblockr(lock, retval):
+    def release_lock(args):
+        retval[0] = args
+        lock.release()
+
+    return release_lock
+
 class FSTree:
     """ Inode tree structure and associated utilities. """
     def __init__(self, gpg, gpg_key):
@@ -78,11 +86,19 @@ class FSTree:
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
         BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
 
-    @defer.inlineCallbacks
     def _read_block_(self, blk_meta):
-        ciphertext = yield BuddyNode.get_node().get_root(blk_meta.id)
-        plaintext = self._decrypt_block_(blk_meta, ciphertext)
-        defer.returnValue(plaintext)
+        deferredVar = BuddyNode.get_node().get_root(blk_meta.id)
+
+        ciph = [None]
+        unblock_read = threading.Lock()
+
+        unblock_read.acquire()
+        deferredVar.addCallback(unblockr(unblock_read, ciph))
+        unblock_read.acquire()
+        unblock_read.release()
+
+        plaintext = self._decrypt_block_(blk_meta, ciph[0].values()[0])
+        return plaintext
 
     def _encrypt_block_(self, blk_meta, blk_data):
         if blk_meta.symkey is None:
@@ -97,8 +113,8 @@ class FSTree:
         if blk_meta.symkey is None:
             raise Exception("Key not provied while trying to decrypt block")
 
-        if hashlib.sha256(ciph_data) != blk_meta.id:
-            raise Exception("Integrity check failed: block ID differs from block digest")
+        if hashlib.sha256(ciph_data).hexdigest() != blk_meta.id:
+            raise Exception("Integrity check failed: block ID differs from block digest: Expected - %s, Actual - %s" % (blk_meta.id, hashlib.sha256(ciph_data).hexdigest()))
 
         cipher = AESCipher(blk_meta.symkey)
         return cipher.decrypt(ciph_data)
