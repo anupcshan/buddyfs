@@ -80,17 +80,23 @@ def unblockr(lock, retval):
 
 class FSTree:
     """ Inode tree structure and associated utilities. """
-    def __init__(self, km, start_port):
+    def __init__(self, km, start_port, known_ip, known_port):
         self.__current_id = 0
         self.inodes = {}
         self.ROOT_INODE = None
         self.inode_open_count = {}
         self.km = km
-        self.kf = KadFacade(start_port)
-
+        self.kf = KadFacade(start_port) # KadFacade needs the port number to find the SQL table name. 
+        self.start_port = int(start_port)
+        self.known_ip = known_ip
+        if(known_port!=None):
+          self.known_port = int(known_port)
+        else:
+          self.known_port = None
+          
     def _commit_block_(self, blk_meta, blk_data):
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
-        node = BuddyNode.get_node()
+        node = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port)
         #set_root(blk_meta.id, ciphertext)
         print 'Created/updated block ID %s' % (blk_meta.id)
 
@@ -106,7 +112,7 @@ class FSTree:
         print peers
 
     def _read_block_(self, blk_meta):
-        deferredVar = BuddyNode.get_node().get_root(blk_meta.id)
+        deferredVar = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).get_root(blk_meta.id)
 
         ciph = [None]
         unblock_read = threading.Lock()
@@ -158,7 +164,7 @@ class FSTree:
 
         encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(rootMeta),
                 self.km.gpg_key['fingerprint'])
-        root = BuddyNode.get_node().set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+        root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
 
     def register_root_inode(self, root_block):
         if self.ROOT_INODE is not None:
@@ -294,10 +300,16 @@ class AESCipher:
 
 class BuddyFSOperations(llfuse.Operations):
     """BuddyFS implementation of llfuse Operations class."""
-    def __init__(self, key_id, start_port):
+    def __init__(self, key_id, start_port, known_ip, known_port):
         super(BuddyFSOperations, self).__init__()
         self.km = KeyManager(key_id)
-        self.tree = FSTree(self.km, start_port)
+        self.tree = FSTree(self.km, start_port, known_ip, known_port)
+        self.start_port = int(start_port)
+        self.known_ip = known_ip
+        if(known_port!=None):
+          self.known_port = int(known_port)
+        else:
+          self.known_port = None
 
     def statfs(self):
         stat_ = llfuse.StatvfsData()
@@ -432,7 +444,7 @@ class BuddyFSOperations(llfuse.Operations):
         """
 
         key = self.km.gpg_key['fingerprint']
-        root = yield BuddyNode.get_node().get_root(key)
+        root = yield BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).get_root(key)
         
         if root:
             self.tree.register_root_inode(root)
@@ -449,6 +461,8 @@ if __name__ == '__main__':
     parser.add_argument('-k', '--key-id', help='Fingerprint of the GPG key to use.'
             'Please make sure to specify a key without a passphrase.', required=True)
     parser.add_argument('-s', '--start-port', help='Port where the BuddyNode listens to.')
+    parser.add_argument('-i', '--known-ip', help='IP of the known machine in the circle')
+    parser.add_argument('-p', '--known-port', help='Port in the known machine use for communication.')
     parser.add_argument('mountpoint', help='Root directory of mounted BuddyFS')
     args = parser.parse_args()
 
@@ -458,7 +472,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logLevel)
 
-    operations = BuddyFSOperations(args.key_id, args.start_port)
+    operations = BuddyFSOperations(args.key_id, args.start_port, args.known_ip, args.known_port)
     operations.auto_create_filesystem()
     
     logging.info('Mounting BuddyFS')

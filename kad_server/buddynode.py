@@ -16,7 +16,7 @@ class BuddyNode(Node):
     node = None
 
     @classmethod
-    def get_node(cls, start_port=settings.BUDDY_PORT, known_ip=None, known_port=None):
+    def get_node(cls, start_port, known_ip=None, known_port=None):
         if BuddyNode.node != None:
             return BuddyNode.node
         
