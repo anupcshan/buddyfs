@@ -11,6 +11,7 @@ import logging
 import os
 import stat
 import sys
+import threading
 from time import time
 from twisted.internet import defer
 from Crypto import Random
@@ -43,6 +44,7 @@ class DirMetadata:
         self.mtime = time()
         self.name = None
         self.files = []
+        self.subdirs = []
         self.version = 1        # Again, needed?
 
 
@@ -63,6 +65,13 @@ class Inode:
         self.version = 1
         self.blockMetadata = None
 
+def unblockr(lock, retval):
+    def release_lock(args):
+        retval[0] = args
+        lock.release()
+
+    return release_lock
+
 class FSTree:
     """ Inode tree structure and associated utilities. """
     def __init__(self, gpg, gpg_key):
@@ -76,11 +85,21 @@ class FSTree:
     def _commit_block_(self, blk_meta, blk_data):
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
         BuddyNode.get_node().set_root(blk_meta.id, ciphertext)
+        print 'Created/updated block ID %s' % (blk_meta.id)
 
     def _read_block_(self, blk_meta):
-        ciphertext = BuddyNode.get_node().get_root(blk_meta.id)
-        plaintext = self._decrypt_block_(blk_meta, blk_data)
-        return plaintext
+        deferredVar = BuddyNode.get_node().get_root(blk_meta.id)
+
+        ciph = [None]
+        unblock_read = threading.Lock()
+
+        unblock_read.acquire()
+        deferredVar.addCallback(unblockr(unblock_read, ciph))
+        unblock_read.acquire()
+        unblock_read.release()
+
+        plaintext = self._decrypt_block_(blk_meta, ciph[0].values()[0])
+        return pickle.loads(plaintext)
 
     def _encrypt_block_(self, blk_meta, blk_data):
         if blk_meta.symkey is None:
@@ -88,15 +107,16 @@ class FSTree:
 
         cipher = AESCipher(blk_meta.symkey)
         ciphertext = cipher.encrypt(blk_data)
-        blk_meta.id = hashlib.sha256(ciphertext).hexdigest()
+        if blk_meta.id is None:
+            blk_meta.id = hashlib.sha256(ciphertext).hexdigest()
         return ciphertext
 
     def _decrypt_block_(self, blk_meta, ciph_data):
         if blk_meta.symkey is None:
             raise Exception("Key not provied while trying to decrypt block")
 
-        if hashlib.sha256(ciph_data) != blk_meta.id:
-            raise Exception("Integrity check failed: block ID differs from block digest")
+        if hashlib.sha256(ciph_data).hexdigest() != blk_meta.id:
+            raise Exception("Integrity check failed: block ID differs from block digest: Expected - %s, Actual - %s" % (blk_meta.id, hashlib.sha256(ciph_data).hexdigest()))
 
         cipher = AESCipher(blk_meta.symkey)
         return cipher.decrypt(ciph_data)
@@ -111,8 +131,8 @@ class FSTree:
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
                 stat.S_IXGRP | stat.S_IXOTH)
 
-        rootMeta = self.ROOT_INODE.blockMetadata = BlockMetadata()
-        dirMeta = DirMetadata()
+        rootMeta = BlockMetadata()
+        dirMeta = self.ROOT_INODE.blockMetadata = DirMetadata()
         self._commit_block_(rootMeta, dirMeta)
 
         encrypted_root_block = self.gpg.encrypt(pickle.dumps(rootMeta),
@@ -128,7 +148,20 @@ class FSTree:
         decrypted_root_block = self.gpg.decrypt(root_block.values()[0])
 
         self.ROOT_INODE.blockMetadata = pickle.loads(decrypted_root_block.data)
-    
+
+        self.ROOT_INODE.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata)
+
+        for i in range(0, len(self.ROOT_INODE.blockMetadata.subdirs)):
+            child = self.new_inode()
+            self.ROOT_INODE.children.append(child.id)
+            child.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata.subdirs[i])
+            child.parent = self.ROOT_INODE.id
+            child.name = child.blockMetadata.name
+            child.isDir = True
+            child.permissions = (stat.S_IRUSR | stat.S_IWUSR |
+                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
+                stat.S_IXGRP | stat.S_IXOTH)
+
         self.ROOT_INODE.parent = self.ROOT_INODE.id
         self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
@@ -145,7 +178,8 @@ class FSTree:
         return self.__current_id
 
     def get_inode_for_id(self, _id):
-        print 'Get Inode for id %d' % (_id)
+        print 'Get Inode for id', _id
+        print self.inodes[_id]
         return self.inodes[_id]
 
     def get_parent(self, inode):
@@ -269,6 +303,7 @@ class BuddyFSOperations(llfuse.Operations):
         return self.tree.lookup(dir_id, name)
 
     def opendir(self, inode):
+        print 'Opendir for Inode %d' % (inode)
         return inode
 
     def readdir(self, inode, off):
@@ -309,6 +344,20 @@ class BuddyFSOperations(llfuse.Operations):
         child_inode.permissions = mode
         parent_inode.children.append(child_inode.id)
         self.open(child_inode.id, flags)
+
+        child_inode.blockMetadata = BlockMetadata()
+        fileMeta = FileMetadata()
+        fileMeta.name = name
+        self.tree._commit_block_(child_inode.blockMetadata, fileMeta)
+
+        parent_inode.blockMetadata.files.append(fileMeta)
+        if parent_inode == self.tree.ROOT_INODE:
+            # Special treatment for ROOT inode
+            pass
+        else:
+            pparent = self.tree.get_inode_for_id(parent_inode.parent)
+            self.tree._commit_block_(parent_inode.blockMetadata, pparent.blockMetadata)
+
         return (child_inode.id, self.getattr(child_inode.id))
 
     def mkdir(self, parent_inode_id, name, mode, ctx):
@@ -321,6 +370,29 @@ class BuddyFSOperations(llfuse.Operations):
         child_inode.name = name
         child_inode.permissions = mode
         parent_inode.children.append(child_inode.id)
+
+        dirMeta = child_inode.blockMetadata = DirMetadata()
+        dirMeta.name = name
+        blockMeta = BlockMetadata()
+
+        self.tree._commit_block_(blockMeta, dirMeta)
+
+        parent_inode.blockMetadata.subdirs.append(blockMeta)
+        print parent_inode.blockMetadata.subdirs
+        metaStore = BlockMetadata()
+        if parent_inode == self.tree.ROOT_INODE:
+            # Special treatment for ROOT inode
+            pass
+        else:
+            metaStore = self.tree.get_inode_for_id(parent_inode.parent).blockMetadata
+
+        self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
+
+        if parent_inode == self.tree.ROOT_INODE:
+            encrypted_root_block = self.gpg.encrypt(pickle.dumps(metaStore), self.gpg_key['fingerprint'])
+            root = BuddyNode.get_node().set_root(self.gpg_key['fingerprint'], encrypted_root_block.data)
+
+
         return self.getattr(child_inode.id)
 
     @defer.inlineCallbacks

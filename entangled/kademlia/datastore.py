@@ -116,7 +116,7 @@ class SQLiteDataStore(DataStore):
         @type dbFile: str
         """
         createDB = not os.path.exists(dbFile)
-        self._db = sqlite3.connect(dbFile)
+        self._db = sqlite3.connect(dbFile, check_same_thread=False)
         self._db.isolation_level = None
         self._db.text_factory = str
         if createDB:

@@ -29,6 +29,8 @@ class BuddyNode(Node):
         else :
             BuddyNode.node.joinNetwork([(known_ip, known_port)])
             print 'Bootstrap with :', known_ip, ' ' , known_port
+
+        return BuddyNode.node
     
     def __init__(self, nodeid, udpPort, dataStore, routingTable=None, networkProtocol=None) :
         if nodeid is None:
