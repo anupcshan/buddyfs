@@ -64,6 +64,7 @@ class Inode:
         self.parent = None
         self.version = 1
         self.blockMetadata = None
+        self.explored = False
 
 def unblockr(lock, retval):
     def release_lock(args):
@@ -151,19 +152,36 @@ class FSTree:
 
         self.ROOT_INODE.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata)
 
-        for i in range(0, len(self.ROOT_INODE.blockMetadata.subdirs)):
+        self._explore_childnodes_(self.ROOT_INODE)
+
+        self.ROOT_INODE.parent = self.ROOT_INODE.id
+        self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
+                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
+                stat.S_IXGRP | stat.S_IXOTH)
+
+    def _explore_childnodes_(self, inode):
+        if inode.explored:
+            return
+
+        for i in range(0, len(inode.blockMetadata.subdirs)):
             child = self.new_inode()
-            self.ROOT_INODE.children.append(child.id)
-            child.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata.subdirs[i])
-            child.parent = self.ROOT_INODE.id
+            inode.children.append(child.id)
+            child.blockMetadata = self._read_block_(inode.blockMetadata.subdirs[i])
+            child.parent = inode.id
             child.name = child.blockMetadata.name
             child.isDir = True
             child.permissions = (stat.S_IRUSR | stat.S_IWUSR |
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
                 stat.S_IXGRP | stat.S_IXOTH)
 
-        self.ROOT_INODE.parent = self.ROOT_INODE.id
-        self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
+        for i in range(0, len(inode.blockMetadata.files)):
+            child = self.new_inode()
+            inode.children.append(child.id)
+            child.blockMetadata = self._read_block_(inode.blockMetadata.subdirs[i])
+            child.parent = inode.id
+            child.name = child.blockMetadata.name
+            child.isDir = True
+            child.permissions = (stat.S_IRUSR | stat.S_IWUSR |
                 stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
                 stat.S_IXGRP | stat.S_IXOTH)
 
