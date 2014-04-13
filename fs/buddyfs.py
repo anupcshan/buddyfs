@@ -152,13 +152,15 @@ class FSTree:
         self.ROOT_INODE.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata)
 
         for i in range(0, len(self.ROOT_INODE.blockMetadata.subdirs)):
-            print 'FOOOOOOOOOOO', i
-            self.ROOT_INODE.children.append(self.new_inode())
-            print 'Child id', self.ROOT_INODE.children[-1].id
-            self.ROOT_INODE.children[-1].blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata.subdirs[i])
-            self.ROOT_INODE.children[-1].parent = self.ROOT_INODE
-            self.ROOT_INODE.children[-1].name = self.ROOT_INODE.children[-1].blockMetadata.name
-            self.ROOT_INODE.children[-1].isDir = True
+            child = self.new_inode()
+            self.ROOT_INODE.children.append(child.id)
+            child.blockMetadata = self._read_block_(self.ROOT_INODE.blockMetadata.subdirs[i])
+            child.parent = self.ROOT_INODE.id
+            child.name = child.blockMetadata.name
+            child.isDir = True
+            child.permissions = (stat.S_IRUSR | stat.S_IWUSR |
+                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
+                stat.S_IXGRP | stat.S_IXOTH)
 
         self.ROOT_INODE.parent = self.ROOT_INODE.id
         self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
