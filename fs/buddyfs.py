@@ -8,6 +8,7 @@ import gnupg
 import hashlib
 import llfuse
 import logging
+import math
 import os
 import stat
 import sys
@@ -29,7 +30,7 @@ class BlockMetadata:
         self.symkey = None
         self.quorum = []
 
-DEFAULT_BLOCK_SIZE = 65536
+DEFAULT_BLOCK_SIZE = 4096
 
 class FileMetadata:
     """ File metadata structure. """
@@ -91,6 +92,7 @@ class FSTree:
     def _commit_block_(self, blk_meta, blk_data):
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
         node = BuddyNode.get_node()
+        node.set_root(blk_meta.id, ciphertext)
         #set_root(blk_meta.id, ciphertext)
         print 'Created/updated block ID %s' % (blk_meta.id)
 
@@ -212,13 +214,6 @@ class FSTree:
     def __get_next_id(self):
         self.__current_id += 1
         return self.__current_id
-
-    def write(self, fh, offset, buf):
-        node = self.get_inode_for_id(fh)
-        bs = node.blockMetadata.block_size
-
-        parent = self.get_inode_for_id(self.get_parent(fh))
-
     def get_inode_for_id(self, _id):
         return self.inodes[_id]
 
@@ -242,6 +237,38 @@ class FSTree:
             return self.getattr(inode)
 
         raise(llfuse.FUSEError(errno.ENOENT))
+
+    def setattr(self, inode, attr):
+        if attr.st_size is not None:
+            print 'Resizing file %d to %d bytes' % (inode, attr.st_size)
+            node = self.get_inode_for_id(inode)
+            node.size = node.blockMetadata.length = attr.st_size
+        if attr.st_mode is not None:
+            self.cursor.execute('UPDATE inodes SET mode=? WHERE id=?',
+                                (attr.st_mode, inode))
+
+        if attr.st_uid is not None:
+            self.cursor.execute('UPDATE inodes SET uid=? WHERE id=?',
+                                (attr.st_uid, inode))
+
+        if attr.st_gid is not None:
+            self.cursor.execute('UPDATE inodes SET gid=? WHERE id=?',
+                                (attr.st_gid, inode))
+
+        if attr.st_rdev is not None:
+            self.cursor.execute('UPDATE inodes SET rdev=? WHERE id=?',
+                                (attr.st_rdev, inode))
+
+        if attr.st_atime is not None:
+            print 'Updated atime file %d' % (inode)
+
+        if attr.st_mtime is not None:
+            print 'Updated mtime file %d' % (inode)
+
+        if attr.st_ctime is not None:
+            print 'Updated ctime file %d' % (inode)
+
+        return self.getattr(inode)
 
     def getattr(self, inode):
         node = self.get_inode_for_id(inode)
@@ -338,8 +365,8 @@ class BuddyFSOperations(llfuse.Operations):
         return self.tree.getattr(inode)
 
     def setattr(self, inode, attr):
-        logging.info('Setattr not implemented: Inode %d' % (inode))
-        return self.getattr(inode)
+        logging.info('Setattr not implemented: Inode %d, attr %s' % (inode, attr))
+        return self.tree.setattr(inode, attr)
 
     def open(self, inode, flags):
         print 'Opening file %d with flags %s' % (inode, flags)
@@ -441,6 +468,101 @@ class BuddyFSOperations(llfuse.Operations):
             logging.info('Did not find existing root inode pointer.'
                     ' Generating new root inode pointer.')
             self.tree.generate_root_inode()
+
+#    def __getattr__(self, name):
+#        def method(*args):
+#            print("tried to handle unknown method " + name)
+#            if args:
+#                print("it had arguments: " + str(args))
+#
+#        print 'Uhm'
+#        return method
+
+    def read(self, fh, offset, remaining):
+        print 'READ!!'
+        node = self.tree.get_inode_for_id(fh)
+        bs = int(node.blockMetadata.block_size)
+        buf = []
+
+        if offset + remaining < node.blockMetadata.length:
+            remaining = node.blockMetadata.length - offset
+
+        while remaining:
+            blk_num = (int) (offset/bs)
+            blk = self.tree._read_block_(node.blockMetadata.blocks[blk_num])
+
+            if offset % bs != 0:
+                buf += blk[offset%bs:]
+                remaining -= bs - offset%bs
+
+            else:
+                buf += blk
+                remaining -= min(remaining, bs)
+
+        return buf
+
+    def write(self, fh, offset, buf):
+#        import pdb; pdb.set_trace()
+        node = self.tree.get_inode_for_id(fh)
+        bs = int(node.blockMetadata.block_size)
+        bytes_copied = 0
+
+        remaining = len(buf)
+        print '!!!!!!!!!!!!!!!!!!!!! WRITING !!!!!!!!!!!!!!! %d %d %d' % (remaining, offset, node.blockMetadata.length)
+
+        if math.ceil((offset + len(buf)) * 1.0 / bs) > math.ceil(node.size * 1.0 / bs):
+            max_blks = int (math.ceil((offset + len(buf)) * 1.0 / bs))
+            print 'Stretching list to %d blocks' % (max_blks)
+            lngth = max_blks - len(node.blockMetadata.blocks)
+            node.blockMetadata.blocks.extend(lngth * [BlockMetadata()])
+
+        while remaining:
+            blk_num = (int) (offset/bs)
+
+            if offset % bs != 0:
+                blk = self.tree._read_block_(node.blockMetadata.blocks[blk_num])
+
+                if (offset % bs + len(buf)) <= bs:
+                    blk = blk[:offset%bs-1] + buf
+                    remaining -= len(buf)
+                    offset += len(buf)
+                    bytes_copied += len(buf)
+                    buf = None
+                else:
+                    blk[offset%bs:] = buf[:bs - offset % bs - 1]
+                    remaining -= (bs - offset % bs)
+                    offset += (bs - offset % bs)
+                    bytes_copied += (bs - offset % bs)
+                    buf = buf[bs - offset % bs:]
+    
+                self.tree._commit_block_(node.blockMetadata.blocks[blk_num], blk)
+
+            else:
+                if remaining < bs:
+                    blk = buf
+                    offset += remaining
+                    bytes_copied += remaining
+                    remaining = 0
+                    buf = None
+                else:
+                    blk = buf[:bs-1]
+                    buf = buf[bs:]
+                    offset += bs
+                    bytes_copied += bs
+                    remaining -= bs
+        
+                self.tree._commit_block_(node.blockMetadata.blocks[blk_num], blk)
+
+        parent = self.tree.get_inode_for_id(self.tree.get_parent(fh))
+
+        if offset + bytes_copied > node.size:
+            node.size = offset + bytes_copied
+            node.blockMetadata.length = node.size
+
+#        self.propagate_changes(parent)
+
+        return bytes_copied
+
 
 if __name__ == '__main__':
     # pylint: disable-msg=C0103 

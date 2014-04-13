@@ -190,7 +190,7 @@ class Node(object):
                 if self._routingTable.distance(key, self.id) < self._routingTable.distance(key, nodes[-1].id):
                     nodes.pop()
                     self.store(key, value, originalPublisherID=originalPublisherID, age=age)
-                    print "Storing :" , key , " - ", value
+                    # print "Storing :" , key , " - ", value
             else:
                 self.store(key, value, originalPublisherID=originalPublisherID, age=age)
 
@@ -364,7 +364,7 @@ class Node(object):
 
         now = int(time.time())
         originallyPublished = now - age
-        print "Storing on DHT : %s %s %s %s %s" % (key, value, now, originallyPublished, originalPublisherID)
+#        print "Storing on DHT : %s %s %s %s %s" % (key, value, now, originallyPublished, originalPublisherID)
         self._dataStore.setItem(key, value, now, originallyPublished, originalPublisherID)
         return 'OK'
 
