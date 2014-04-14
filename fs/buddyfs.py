@@ -412,7 +412,7 @@ class BuddyFSOperations(llfuse.Operations):
             metaStore = BlockMetadata()
             self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
             encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore), self.km.gpg_key['fingerprint'])
-            root = BuddyNode.get_node().set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+            root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
         else:
             pparent = self.tree.get_inode_for_id(parent_inode.parent)
             for mblock in pparent.blockMetadata.files:
@@ -459,7 +459,7 @@ class BuddyFSOperations(llfuse.Operations):
 
         if parent_inode == self.tree.ROOT_INODE:
             encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore), self.km.gpg_key['fingerprint'])
-            root = BuddyNode.get_node().set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+            root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
 
 
         return self.getattr(child_inode.id)
@@ -594,7 +594,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logLevel)
 
-    operations = BuddyFSOperations(args.key_id, args.start_port, args.known_ip, args.known_port)
+    operations = BuddyFSOperations(args.key_id, args.known_port, args.known_ip, args.known_port)
     operations.auto_create_filesystem()
     
     logging.info('Mounting BuddyFS')
