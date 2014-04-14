@@ -490,13 +490,17 @@ class BuddyFSOperations(llfuse.Operations):
 #        return method
 
     def read(self, fh, offset, remaining):
-        print 'READ!!'
         node = self.tree.get_inode_for_id(fh)
+        print '!!!!!!!!!!!!!!!!!!!!! READING !!!!!!!!!!!!!!! %d %d %d %d' % (remaining, offset, remaining, node.blockMetadata.length)
         bs = int(node.blockMetadata.block_size)
         buf = []
 
-        if offset + remaining < node.blockMetadata.length:
+        if offset >= node.blockMetadata.length:
+            return ""
+
+        if offset + remaining > node.blockMetadata.length:
             remaining = node.blockMetadata.length - offset
+            print 'Truncating to %d bytes' % (remaining)
 
         while remaining:
             blk_num = (int) (offset/bs)
