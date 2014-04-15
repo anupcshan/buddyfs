@@ -224,18 +224,67 @@ class FSTree:
     def get_parent(self, inode):
         return self.get_inode_for_id(inode).parent
 
-    def lookup(self, dir_id, name):
+    def rename(self, inode_p_old, name_old, inode_p_new, name_new):
+        raise 'Not implemented rename'
+
+    def link(self, inode, new_inode_p, new_name):
+        raise 'Not implemented link'
+
+    def release(self, fh):
+        raise 'Not implemented release'
+
+    def rmdir(self, inode_p, name):
+        raise 'Not implemented rmdir'
+
+    def unlink(self, inode_p, name):
+        print 'Unlinking %s in %d' % (name, inode_p)
+        node = self._lookup(inode_p, name)
+        print node
+        inode = self.get_inode_for_id(node)
+
+        if inode.isDir:
+            raise llfuse.FUSEError(errno.EISDIR)
+
+        parent = self.get_inode_for_id(inode.parent)
+        i = 0
+        while i < len(parent.blockMetadata.files):
+            print 'Iterating %d: ID %s BID %s' % (i, parent.blockMetadata.files[i].id, inode.bid)
+            if parent.blockMetadata.files[i].id == inode.bid:
+                parent.blockMetadata.files[i] = parent.blockMetadata.files[len(parent.blockMetadata.files) - 1]
+                del parent.blockMetadata.files[len(parent.blockMetadata.files) - 1]
+
+
+                parent.children.remove(node)
+                pparent = self.get_inode_for_id(parent.parent)
+                for mblock in pparent.blockMetadata.subdirs:
+                    if mblock.id == parent.bid:
+                        self._commit_block_(mblock, parent.blockMetadata)
+                        break
+
+                break
+            else:
+                i += 1
+
+    def _lookup(self, dir_id, name):
         inode = None
         if name == '.':
             inode = dir_id
         elif name == '..':
             inode = self.get_parent(dir_id)
         else:
-            parent = self.get_inode_for_id(self.get_parent(dir_id))
+            parent = self.get_inode_for_id(dir_id)
             for child_id in parent.children:
                 child = self.get_inode_for_id(child_id)
                 if child.name == name:
                     inode = child.id
+
+        if inode:
+            return inode
+
+        return None
+
+    def lookup(self, dir_id, name):
+        inode = self._lookup(dir_id, name)
 
         if inode:
             return self.getattr(inode)
@@ -379,6 +428,9 @@ class BuddyFSOperations(llfuse.Operations):
 
     def getattr(self, inode):
         return self.tree.getattr(inode)
+
+    def unlink(self, inode_p, name):
+        return self.tree.unlink(inode_p, name)
 
     def setattr(self, inode, attr):
         logging.info('Setattr not implemented: Inode %d, attr %s' % (inode, attr))
