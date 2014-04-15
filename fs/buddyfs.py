@@ -30,7 +30,7 @@ class BlockMetadata:
         self.symkey = None
         self.quorum = []
 
-DEFAULT_BLOCK_SIZE = 4096
+DEFAULT_BLOCK_SIZE = 8192
 
 class FileMetadata:
     """ File metadata structure. """
@@ -99,14 +99,13 @@ class FSTree:
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
         node = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port)
         node.set_root(blk_meta.id, ciphertext)
-        print 'Created/updated block ID %s' % (blk_meta.id)
+        logging.info('Committed block ID %s to DHT' % (blk_meta.id))
 
         node.push_to_dht(self.km.gpg_key['fingerprint'], node.get_node_id())
-        print "Stored <pubkey, nodeid> mapping to DHT"
+        logging.info("Stored <pubkey, nodeid> mapping to DHT")
         
         pubkey_list = map(lambda x : x.get('keyid'), self.km.gpg.list_keys())
-        print "pubkey list : "
-        print pubkey_list
+        logging.info("pubkey list : %s", pubkey_list)
          
         peers = self.kf.get_all_peers_from_dht(pubkey_list)
         print "Peer List based on the Web of Trust Social Circle: "
@@ -248,17 +247,23 @@ class FSTree:
             print 'Resizing file %d to %d bytes' % (inode, attr.st_size)
             node = self.get_inode_for_id(inode)
             node.size = node.blockMetadata.length = attr.st_size
+            bs = int(node.blockMetadata.block_size)
+
+            print 'SETATTR LENGTH BEFORE ------------------- ', len(node.blockMetadata.blocks)
+            if (attr.st_size + bs - 1) / bs > (node.size + bs - 1) / bs:
+                max_blks = int (math.ceil((offset + len(buf)) * 1.0 / bs))
+                lngth = max_blks - len(node.blockMetadata.blocks)
+                node.blockMetadata.blocks.extend(lngth * [BlockMetadata()])
+                print 'SETATTR LENGTH ------------------- ', len(node.blockMetadata.blocks)
+
         if attr.st_mode is not None:
-            self.cursor.execute('UPDATE inodes SET mode=? WHERE id=?',
-                                (attr.st_mode, inode))
+            print 'SETATTR Changing mode to', attr.st_mode
 
         if attr.st_uid is not None:
-            self.cursor.execute('UPDATE inodes SET uid=? WHERE id=?',
-                                (attr.st_uid, inode))
+            print 'SETATTR Changing uid to', attr.st_uid
 
         if attr.st_gid is not None:
-            self.cursor.execute('UPDATE inodes SET gid=? WHERE id=?',
-                                (attr.st_gid, inode))
+            print 'SETATTR Changing uid to', attr.st_gid
 
         if attr.st_rdev is not None:
             self.cursor.execute('UPDATE inodes SET rdev=? WHERE id=?',
@@ -496,14 +501,18 @@ class BuddyFSOperations(llfuse.Operations):
         buf = []
 
         if offset >= node.blockMetadata.length:
-            return ""
+            return b''
 
         if offset + remaining > node.blockMetadata.length:
             remaining = node.blockMetadata.length - offset
             print 'Truncating to %d bytes' % (remaining)
 
-        while remaining:
+        if (offset + remaining) / bs > len(node.blockMetadata.blocks):
+            raise 'Too few blocks!! Expected %d, Has %d' % ((offset + remaining) / bs, len(node.blockMetadata.blocks))
+
+        while remaining > 0:
             blk_num = (int) (offset/bs)
+            print '****************************************** Reading block %d, offset %d, remaining %d' % (blk_num, offset, remaining)
             blk = self.tree._read_block_(node.blockMetadata.blocks[blk_num])
 
             if offset % bs != 0:
@@ -514,7 +523,7 @@ class BuddyFSOperations(llfuse.Operations):
                 buf += blk
                 remaining -= min(remaining, bs)
 
-        return buf
+        return ''.join(buf)
 
     def write(self, fh, offset, buf):
 #        import pdb; pdb.set_trace()
@@ -525,14 +534,16 @@ class BuddyFSOperations(llfuse.Operations):
         remaining = len(buf)
         print '!!!!!!!!!!!!!!!!!!!!! WRITING !!!!!!!!!!!!!!! %d %d %d' % (remaining, offset, node.blockMetadata.length)
 
-        if math.ceil((offset + len(buf)) * 1.0 / bs) > math.ceil(node.size * 1.0 / bs):
-            max_blks = int (math.ceil((offset + len(buf)) * 1.0 / bs))
+        if ((offset + remaining + bs - 1) / bs) > len(node.blockMetadata.blocks):
+            max_blks = int ((offset + remaining + bs - 1) / bs)
             print 'Stretching list to %d blocks' % (max_blks)
             lngth = max_blks - len(node.blockMetadata.blocks)
             node.blockMetadata.blocks.extend(lngth * [BlockMetadata()])
+            print 'LENGTH', len(node.blockMetadata.blocks)
 
         while remaining:
             blk_num = (int) (offset/bs)
+            print 'Offset: %d, Block size %d, Block Number: %d, Remaining: %d, Bytes Copied: %d' % (offset, bs, blk_num, remaining, bytes_copied)
 
             if offset % bs != 0:
                 blk = self.tree._read_block_(node.blockMetadata.blocks[blk_num])
@@ -566,12 +577,13 @@ class BuddyFSOperations(llfuse.Operations):
                     bytes_copied += bs
                     remaining -= bs
         
+                print 'About to write to position %d of a list of length %d' % (blk_num, len(node.blockMetadata.blocks))
                 self.tree._commit_block_(node.blockMetadata.blocks[blk_num], blk)
 
         parent = self.tree.get_inode_for_id(self.tree.get_parent(fh))
 
-        if offset + bytes_copied > node.size:
-            node.size = offset + bytes_copied
+        if offset > node.size:
+            node.size = offset
             node.blockMetadata.length = node.size
 
 #        self.propagate_changes(parent)
