@@ -643,7 +643,7 @@ class BuddyFSOperations(llfuse.Operations):
 
 if __name__ == '__main__':
     # pylint: disable-msg=C0103 
-    parser = argparse.ArgumentParser(prog='BuddyFS')
+    parser = argparse.ArgumentParser(prog='BuddyFS', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-v', '--verbose', action='store_true',
         help='Enable verbose logging')
     parser.add_argument('-k', '--key-id', help='Fingerprint of the GPG key to use.'
