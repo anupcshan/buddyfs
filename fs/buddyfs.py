@@ -108,8 +108,7 @@ class FSTree:
         logging.info("pubkey list : %s", pubkey_list)
          
         peers = self.kf.get_all_peers_from_dht(pubkey_list)
-        print "Peer List based on the Web of Trust Social Circle: "
-        print peers
+        logging.info("Peer List based on the Web of Trust Social Circle: %s", peers)
 
     def _read_block_(self, blk_meta):
         deferredVar = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).get_root(blk_meta.id)
@@ -237,9 +236,8 @@ class FSTree:
         raise 'Not implemented rmdir'
 
     def unlink(self, inode_p, name):
-        print 'Unlinking %s in %d' % (name, inode_p)
+        logging.debug('Unlinking %s in %d', name, inode_p)
         node = self._lookup(inode_p, name)
-        print node
         inode = self.get_inode_for_id(node)
 
         if inode.isDir:
@@ -248,7 +246,7 @@ class FSTree:
         parent = self.get_inode_for_id(inode.parent)
         i = 0
         while i < len(parent.blockMetadata.files):
-            print 'Iterating %d: ID %s BID %s' % (i, parent.blockMetadata.files[i].id, inode.bid)
+            logging.debug('Iterating %d: ID %s BID %s', i, parent.blockMetadata.files[i].id, inode.bid)
             if parent.blockMetadata.files[i].id == inode.bid:
                 parent.blockMetadata.files[i] = parent.blockMetadata.files[len(parent.blockMetadata.files) - 1]
                 del parent.blockMetadata.files[len(parent.blockMetadata.files) - 1]
@@ -650,7 +648,7 @@ if __name__ == '__main__':
         help='Enable verbose logging')
     parser.add_argument('-k', '--key-id', help='Fingerprint of the GPG key to use.'
             'Please make sure to specify a key without a passphrase.', required=True)
-    parser.add_argument('-s', '--start-port', help='Port where the BuddyNode listens to.')
+    parser.add_argument('-s', '--start-port', help='Port where the BuddyNode listens to.', default=5000)
     parser.add_argument('-i', '--known-ip', help='IP of the known machine in the circle')
     parser.add_argument('-p', '--known-port', help='Port in the known machine use for communication.')
     parser.add_argument('mountpoint', help='Root directory of mounted BuddyFS')
@@ -662,7 +660,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logLevel)
 
-    operations = BuddyFSOperations(args.key_id, args.known_port, args.known_ip, args.known_port)
+    operations = BuddyFSOperations(args.key_id, args.start_port, args.known_ip, args.known_port)
     operations.auto_create_filesystem()
     
     logging.info('Mounting BuddyFS')
