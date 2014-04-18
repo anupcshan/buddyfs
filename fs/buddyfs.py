@@ -4,11 +4,9 @@
 import argparse
 import cPickle as pickle
 import errno
-import gnupg
 import hashlib
 import llfuse
 import logging
-import math
 import os
 import stat
 import sys
@@ -163,7 +161,7 @@ class FSTree:
 
         encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(rootMeta),
                 self.km.gpg_key['fingerprint'])
-        root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+        BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
 
     def register_root_inode(self, root_block):
         if self.ROOT_INODE is not None:
@@ -297,8 +295,8 @@ class FSTree:
             bs = int(node.blockMetadata.block_size)
 
             print 'SETATTR LENGTH BEFORE ------------------- ', len(node.blockMetadata.blocks)
-            if (attr.st_size + bs - 1) / bs > (node.size + bs - 1) / bs:
-                max_blks = int (math.ceil((offset + len(buf)) * 1.0 / bs))
+            if (attr.st_size + bs - 1) / bs > len(node.blockMetadata.blocks):
+                max_blks = (attr.st_size + bs - 1) / bs
                 lngth = max_blks - len(node.blockMetadata.blocks)
                 node.blockMetadata.blocks.extend(lngth * [BlockMetadata()])
                 print 'SETATTR LENGTH ------------------- ', len(node.blockMetadata.blocks)
@@ -467,12 +465,12 @@ class BuddyFSOperations(llfuse.Operations):
             metaStore = BlockMetadata()
             self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
             encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore), self.km.gpg_key['fingerprint'])
-            root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+            BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
         else:
             pparent = self.tree.get_inode_for_id(parent_inode.parent)
             for mblock in pparent.blockMetadata.files:
                 if mblock.id == parent_inode.bid:
-                    self.tree._commit_block_(mblock, parent.blockMetadata)
+                    self.tree._commit_block_(mblock, parent_inode.blockMetadata)
                     break
 
 
@@ -514,7 +512,7 @@ class BuddyFSOperations(llfuse.Operations):
 
         if parent_inode == self.tree.ROOT_INODE:
             encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore), self.km.gpg_key['fingerprint'])
-            root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+            BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
 
 
         return self.getattr(child_inode.id)
@@ -630,7 +628,7 @@ class BuddyFSOperations(llfuse.Operations):
                 print 'About to write to position %d of a list of length %d' % (blk_num, len(node.blockMetadata.blocks))
                 self.tree._commit_block_(node.blockMetadata.blocks[blk_num], blk)
 
-        parent = self.tree.get_inode_for_id(self.tree.get_parent(fh))
+#        parent = self.tree.get_inode_for_id(self.tree.get_parent(fh))
 
         if offset > node.size:
             node.size = offset
