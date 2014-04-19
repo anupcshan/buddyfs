@@ -308,7 +308,7 @@ class FSTree:
         if inode:
             return self.getattr(inode)
 
-        raise(llfuse.FUSEError(errno.ENOENT))
+        raise llfuse.FUSEError(errno.ENOENT)
 
     def setattr(self, inode, attr):
         if attr.st_size is not None:

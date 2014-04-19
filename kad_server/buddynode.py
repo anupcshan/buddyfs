@@ -1,5 +1,6 @@
 """
-This will be the fundamental part of the buddy daemon. Starts a Kademlia node and implements functionality for Node ID verification.
+This will be the fundamental part of the buddy daemon.
+Starts a Kademlia node and implements functionality for Node ID verification.
 """
 from entangled.kademlia.node import Node
 from entangled.kademlia.datastore import SQLiteDataStore
@@ -19,14 +20,14 @@ class BuddyNode(Node):
 
     @classmethod
     def get_node(cls, start_port, known_ip=None, known_port=None):
-        if BuddyNode.node != None:
+        if BuddyNode.node is not None:
             return BuddyNode.node
 
         dbpath = settings.DBPATH + '/buddydht-%s.db' % start_port
         datastore = SQLiteDataStore(dbFile=dbpath)
         print "Starting buddy-daemon on port ", start_port
         BuddyNode.node = BuddyNode(None, start_port, datastore)
-        if(known_ip == None or known_port == None):
+        if known_ip is None or known_port is None:
             BuddyNode.node.joinNetwork([])
         else:
             BuddyNode.node.joinNetwork([(known_ip, known_port)])
@@ -44,7 +45,7 @@ class BuddyNode(Node):
 
     def get_node_id(self):
         nodeid = ""
-        if(os.path.isfile(".nodeid")):
+        if os.path.isfile(".nodeid"):
             print "NodeID exists.."
             f = open(".nodeid", "r")
             x = f.read()
