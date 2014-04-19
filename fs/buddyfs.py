@@ -4,11 +4,9 @@
 import argparse
 import cPickle as pickle
 import errno
-import gnupg
 import hashlib
 import llfuse
 import logging
-import math
 import os
 import stat
 import sys
@@ -22,9 +20,11 @@ from kad_server.buddynode import BuddyNode
 from kad_server.buddyd import KadFacade
 from crypto.keys import KeyManager
 
-""" On-disk representation. """
+
 class BlockMetadata:
+
     """ Block metedata structure. """
+
     def __init__(self):
         self.id = None
         self.symkey = None
@@ -32,10 +32,13 @@ class BlockMetadata:
 
 DEFAULT_BLOCK_SIZE = 8192
 
+
 class FileMetadata:
+
     """ File metadata structure. """
+
     def __init__(self):
-        # TODO: Figure out how to represent compact files within this structure.
+        # TODO: Figure out how to represent compact files within this structure
         self.mtime = time()
         self.name = None
         self.length = 0
@@ -43,8 +46,11 @@ class FileMetadata:
         self.blocks = []
         self.version = 1        # Is this really needed?
 
+
 class DirMetadata:
+
     """ Directory metadata structure. """
+
     def __init__(self):
         self.mtime = time()
         self.name = None
@@ -53,9 +59,11 @@ class DirMetadata:
         self.version = 1        # Again, needed?
 
 
-""" In-memory FS representation. """
 class Inode:
-    """ Inode data structure. """
+
+    """ In-memory FS representation.
+        Inode data structure. """
+
     def __init__(self, _id):
         self.id = _id
         self.name = ''
@@ -72,6 +80,7 @@ class Inode:
         self.explored = False
         self.bid = None
 
+
 def unblockr(lock, retval):
     def release_lock(args):
         retval[0] = args
@@ -79,39 +88,46 @@ def unblockr(lock, retval):
 
     return release_lock
 
+
 class FSTree:
+
     """ Inode tree structure and associated utilities. """
+
     def __init__(self, km, start_port, known_ip, known_port):
         self.__current_id = 0
         self.inodes = {}
         self.ROOT_INODE = None
         self.inode_open_count = {}
         self.km = km
-        self.kf = KadFacade(start_port) # KadFacade needs the port number to find the SQL table name. 
+        # KadFacade needs the port number to find the SQL table name.
+        self.kf = KadFacade(start_port)
         self.start_port = int(start_port)
         self.known_ip = known_ip
-        if(known_port!=None):
-          self.known_port = int(known_port)
+        if known_port is not None:
+            self.known_port = int(known_port)
         else:
-          self.known_port = None
-          
+            self.known_port = None
+
     def _commit_block_(self, blk_meta, blk_data):
         ciphertext = self._encrypt_block_(blk_meta, pickle.dumps(blk_data))
-        node = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port)
+        node = BuddyNode.get_node(self.start_port, self.known_ip,
+                                  self.known_port)
         node.set_root(blk_meta.id, ciphertext)
         logging.info('Committed block ID %s to DHT' % (blk_meta.id))
 
         node.push_to_dht(self.km.gpg_key['fingerprint'], node.get_node_id())
         logging.info("Stored <pubkey, nodeid> mapping to DHT")
-        
-        pubkey_list = map(lambda x : x.get('keyid'), self.km.gpg.list_keys())
+
+        pubkey_list = map(lambda x: x.get('keyid'), self.km.gpg.list_keys())
         logging.info("pubkey list : %s", pubkey_list)
-         
+
         peers = self.kf.get_all_peers_from_dht(pubkey_list)
-        logging.info("Peer List based on the Web of Trust Social Circle: %s", peers)
+        logging.info("Peer List based on the Web of Trust Social Circle: %s",
+                     peers)
 
     def _read_block_(self, blk_meta):
-        deferredVar = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).get_root(blk_meta.id)
+        deferredVar = BuddyNode.get_node(self.start_port, self.known_ip,
+                                         self.known_port).get_root(blk_meta.id)
 
         ciph = [None]
         unblock_read = threading.Lock()
@@ -138,8 +154,11 @@ class FSTree:
         if blk_meta.symkey is None:
             raise Exception("Key not provied while trying to decrypt block")
 
-#        if hashlib.sha256(ciph_data).hexdigest() != blk_meta.id:
-#            raise Exception("Integrity check failed: block ID differs from block digest: Expected - %s, Actual - %s" % (blk_meta.id, hashlib.sha256(ciph_data).hexdigest()))
+        # TODO: Perform integrity check on the block here.
+        # if hashlib.sha256(ciph_data).hexdigest() != blk_meta.id:
+        #     raise Exception("Integrity check failed: block ID differs from"
+        #     "block digest: Expected - %s, Actual - %s"
+        #     % (blk_meta.id, hashlib.sha256(ciph_data).hexdigest()))
 
         cipher = AESCipher(blk_meta.symkey)
         return cipher.decrypt(ciph_data)
@@ -150,9 +169,8 @@ class FSTree:
 
         self.ROOT_INODE = self.new_inode()
         self.ROOT_INODE.parent = self.ROOT_INODE.id
-        self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
-                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
-                stat.S_IXGRP | stat.S_IXOTH)
+        self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH |
+                                       stat.S_IFDIR | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
         rootMeta = BlockMetadata()
         dirMeta = self.ROOT_INODE.blockMetadata = DirMetadata()
@@ -162,8 +180,9 @@ class FSTree:
         self.ROOT_INODE.bid = rootMeta.id
 
         encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(rootMeta),
-                self.km.gpg_key['fingerprint'])
-        root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+                                                   self.km.gpg_key['fingerprint'])
+        BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(
+            self.km.gpg_key['fingerprint'], encrypted_root_block.data)
 
     def register_root_inode(self, root_block):
         if self.ROOT_INODE is not None:
@@ -179,9 +198,8 @@ class FSTree:
         self._explore_childnodes_(self.ROOT_INODE)
 
         self.ROOT_INODE.parent = self.ROOT_INODE.id
-        self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR |
-                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
-                stat.S_IXGRP | stat.S_IXOTH)
+        self.ROOT_INODE.permissions = (stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH |
+                                       stat.S_IFDIR | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     def _explore_childnodes_(self, inode):
         if inode.explored:
@@ -194,9 +212,8 @@ class FSTree:
             child.parent = inode.id
             child.name = child.blockMetadata.name
             child.isDir = True
-            child.permissions = (stat.S_IRUSR | stat.S_IWUSR |
-                stat.S_IRGRP | stat.S_IROTH | stat.S_IFDIR | stat.S_IXUSR |
-                stat.S_IXGRP | stat.S_IXOTH)
+            child.permissions = (stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH |
+                                 stat.S_IFDIR | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
         for i in range(0, len(inode.blockMetadata.files)):
             child = self.new_inode()
@@ -205,8 +222,8 @@ class FSTree:
             child.parent = inode.id
             child.name = child.blockMetadata.name
             child.isDir = False
-            child.permissions = (stat.S_IRUSR | stat.S_IWUSR |
-                stat.S_IRGRP | stat.S_IROTH | stat.S_IFREG)
+            child.permissions = (stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH |
+                                 stat.S_IFREG)
 
     def new_inode(self):
         next_id = self.__get_next_id()
@@ -217,6 +234,7 @@ class FSTree:
     def __get_next_id(self):
         self.__current_id += 1
         return self.__current_id
+
     def get_inode_for_id(self, _id):
         return self.inodes[_id]
 
@@ -246,11 +264,12 @@ class FSTree:
         parent = self.get_inode_for_id(inode.parent)
         i = 0
         while i < len(parent.blockMetadata.files):
-            logging.debug('Iterating %d: ID %s BID %s', i, parent.blockMetadata.files[i].id, inode.bid)
+            logging.debug('Iterating %d: ID %s BID %s', i, parent.blockMetadata.files[i].id,
+                          inode.bid)
             if parent.blockMetadata.files[i].id == inode.bid:
-                parent.blockMetadata.files[i] = parent.blockMetadata.files[len(parent.blockMetadata.files) - 1]
+                parent.blockMetadata.files[i] = parent.blockMetadata.files[
+                    len(parent.blockMetadata.files) - 1]
                 del parent.blockMetadata.files[len(parent.blockMetadata.files) - 1]
-
 
                 parent.children.remove(node)
                 pparent = self.get_inode_for_id(parent.parent)
@@ -297,8 +316,8 @@ class FSTree:
             bs = int(node.blockMetadata.block_size)
 
             print 'SETATTR LENGTH BEFORE ------------------- ', len(node.blockMetadata.blocks)
-            if (attr.st_size + bs - 1) / bs > (node.size + bs - 1) / bs:
-                max_blks = int (math.ceil((offset + len(buf)) * 1.0 / bs))
+            if (attr.st_size + bs - 1) / bs > len(node.blockMetadata.blocks):
+                max_blks = (attr.st_size + bs - 1) / bs
                 lngth = max_blks - len(node.blockMetadata.blocks)
                 node.blockMetadata.blocks.extend(lngth * [BlockMetadata()])
                 print 'SETATTR LENGTH ------------------- ', len(node.blockMetadata.blocks)
@@ -357,10 +376,12 @@ class FSTree:
         return entry
 
 BS = 16
-pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS) 
-unpad = lambda s : s[0:-ord(s[-1])]
+pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
+unpad = lambda s: s[0:-ord(s[-1])]
+
 
 class AESCipher:
+
     def __init__(self, key):
         self.key = key
 
@@ -377,17 +398,19 @@ class AESCipher:
 
 
 class BuddyFSOperations(llfuse.Operations):
+
     """BuddyFS implementation of llfuse Operations class."""
+
     def __init__(self, key_id, start_port, known_ip, known_port):
         super(BuddyFSOperations, self).__init__()
         self.km = KeyManager(key_id)
         self.tree = FSTree(self.km, start_port, known_ip, known_port)
         self.start_port = int(start_port)
         self.known_ip = known_ip
-        if(known_port!=None):
-          self.known_port = int(known_port)
+        if known_port is not None:
+            self.known_port = int(known_port)
         else:
-          self.known_port = None
+            self.known_port = None
 
     def statfs(self):
         stat_ = llfuse.StatvfsData()
@@ -416,7 +439,7 @@ class BuddyFSOperations(llfuse.Operations):
 
     def readdir(self, inode, off):
         node = self.tree.get_inode_for_id(inode)
-        
+
         i = off
         for child_id in node.children[off:]:
             child = self.tree.get_inode_for_id(child_id)
@@ -466,15 +489,16 @@ class BuddyFSOperations(llfuse.Operations):
             # Special treatment for ROOT inode
             metaStore = BlockMetadata()
             self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
-            encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore), self.km.gpg_key['fingerprint'])
-            root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+            encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore),
+                                                       self.km.gpg_key['fingerprint'])
+            BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(
+                self.km.gpg_key['fingerprint'], encrypted_root_block.data)
         else:
             pparent = self.tree.get_inode_for_id(parent_inode.parent)
             for mblock in pparent.blockMetadata.files:
                 if mblock.id == parent_inode.bid:
-                    self.tree._commit_block_(mblock, parent.blockMetadata)
+                    self.tree._commit_block_(mblock, parent_inode.blockMetadata)
                     break
-
 
         return (child_inode.id, self.getattr(child_inode.id))
 
@@ -513,9 +537,10 @@ class BuddyFSOperations(llfuse.Operations):
         self.tree._commit_block_(metaStore, parent_inode.blockMetadata)
 
         if parent_inode == self.tree.ROOT_INODE:
-            encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore), self.km.gpg_key['fingerprint'])
-            root = BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(self.km.gpg_key['fingerprint'], encrypted_root_block.data)
-
+            encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(metaStore),
+                                                       self.km.gpg_key['fingerprint'])
+            BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(
+                self.km.gpg_key['fingerprint'], encrypted_root_block.data)
 
         return self.getattr(child_inode.id)
 
@@ -526,13 +551,14 @@ class BuddyFSOperations(llfuse.Operations):
         """
 
         key = self.km.gpg_key['fingerprint']
-        root = yield BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).get_root(key)
-        
+        root = yield BuddyNode.get_node(self.start_port, self.known_ip,
+                                        self.known_port).get_root(key)
+
         if root:
             self.tree.register_root_inode(root)
         else:
             logging.info('Did not find existing root inode pointer.'
-                    ' Generating new root inode pointer.')
+                         ' Generating new root inode pointer.')
             self.tree.generate_root_inode()
 
 #    def __getattr__(self, name):
@@ -546,7 +572,7 @@ class BuddyFSOperations(llfuse.Operations):
 
     def read(self, fh, offset, remaining):
         node = self.tree.get_inode_for_id(fh)
-        print '!!!!!!!!!!!!!!!!!!!!! READING !!!!!!!!!!!!!!! %d %d %d %d' % (remaining, offset, remaining, node.blockMetadata.length)
+        print 'READING %d %d %d %d' % (remaining, offset, remaining, node.blockMetadata.length)
         bs = int(node.blockMetadata.block_size)
         buf = []
 
@@ -558,16 +584,17 @@ class BuddyFSOperations(llfuse.Operations):
             print 'Truncating to %d bytes' % (remaining)
 
         if (offset + remaining) / bs > len(node.blockMetadata.blocks):
-            raise 'Too few blocks!! Expected %d, Has %d' % ((offset + remaining) / bs, len(node.blockMetadata.blocks))
+            raise 'Too few blocks!! Expected %d, Has %d' % ((offset + remaining) / bs,
+                                                            len(node.blockMetadata.blocks))
 
         while remaining > 0:
-            blk_num = (int) (offset/bs)
-            print '****************************************** Reading block %d, offset %d, remaining %d' % (blk_num, offset, remaining)
+            blk_num = (int)(offset / bs)
+            print 'Reading block %d, offset %d, remaining %d' % (blk_num, offset, remaining)
             blk = self.tree._read_block_(node.blockMetadata.blocks[blk_num])
 
             if offset % bs != 0:
-                buf += blk[offset%bs:]
-                remaining -= bs - offset%bs
+                buf += blk[offset % bs:]
+                remaining -= bs - offset % bs
 
             else:
                 buf += blk
@@ -582,35 +609,36 @@ class BuddyFSOperations(llfuse.Operations):
         bytes_copied = 0
 
         remaining = len(buf)
-        print '!!!!!!!!!!!!!!!!!!!!! WRITING !!!!!!!!!!!!!!! %d %d %d' % (remaining, offset, node.blockMetadata.length)
+        print 'WRITING %d %d %d' % (remaining, offset, node.blockMetadata.length)
 
         if ((offset + remaining + bs - 1) / bs) > len(node.blockMetadata.blocks):
-            max_blks = int ((offset + remaining + bs - 1) / bs)
+            max_blks = int((offset + remaining + bs - 1) / bs)
             print 'Stretching list to %d blocks' % (max_blks)
             lngth = max_blks - len(node.blockMetadata.blocks)
             node.blockMetadata.blocks.extend(lngth * [BlockMetadata()])
             print 'LENGTH', len(node.blockMetadata.blocks)
 
         while remaining:
-            blk_num = (int) (offset/bs)
-            print 'Offset: %d, Block size %d, Block Number: %d, Remaining: %d, Bytes Copied: %d' % (offset, bs, blk_num, remaining, bytes_copied)
+            blk_num = int(offset / bs)
+            print 'Offset: %d, Block size %d, Block Number: %d, Remaining: %d, Bytes Copied: %d' % (
+                offset, bs, blk_num, remaining, bytes_copied)
 
             if offset % bs != 0:
                 blk = self.tree._read_block_(node.blockMetadata.blocks[blk_num])
 
                 if (offset % bs + len(buf)) <= bs:
-                    blk = blk[:offset%bs-1] + buf
+                    blk = blk[:offset % bs - 1] + buf
                     remaining -= len(buf)
                     offset += len(buf)
                     bytes_copied += len(buf)
                     buf = None
                 else:
-                    blk[offset%bs:] = buf[:bs - offset % bs - 1]
+                    blk[offset % bs:] = buf[:bs - offset % bs - 1]
                     remaining -= (bs - offset % bs)
                     offset += (bs - offset % bs)
                     bytes_copied += (bs - offset % bs)
                     buf = buf[bs - offset % bs:]
-    
+
                 self.tree._commit_block_(node.blockMetadata.blocks[blk_num], blk)
 
             else:
@@ -621,16 +649,17 @@ class BuddyFSOperations(llfuse.Operations):
                     remaining = 0
                     buf = None
                 else:
-                    blk = buf[:bs-1]
+                    blk = buf[:bs - 1]
                     buf = buf[bs:]
                     offset += bs
                     bytes_copied += bs
                     remaining -= bs
-        
-                print 'About to write to position %d of a list of length %d' % (blk_num, len(node.blockMetadata.blocks))
+
+                print 'About to write to position %d of a list of length %d' % (
+                    blk_num, len(node.blockMetadata.blocks))
                 self.tree._commit_block_(node.blockMetadata.blocks[blk_num], blk)
 
-        parent = self.tree.get_inode_for_id(self.tree.get_parent(fh))
+#        parent = self.tree.get_inode_for_id(self.tree.get_parent(fh))
 
         if offset > node.size:
             node.size = offset
@@ -642,31 +671,33 @@ class BuddyFSOperations(llfuse.Operations):
 
 
 if __name__ == '__main__':
-    # pylint: disable-msg=C0103 
-    parser = argparse.ArgumentParser(prog='BuddyFS', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # pylint: disable-msg=C0103
+    parser = argparse.ArgumentParser(prog='BuddyFS',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-v', '--verbose', action='store_true',
-        help='Enable verbose logging')
-    parser.add_argument('-k', '--key-id', help='Fingerprint of the GPG key to use.'
-            'Please make sure to specify a key without a passphrase.', required=True)
-    parser.add_argument('-s', '--start-port', help='Port where the BuddyNode listens to.', default=5000)
+                        help='Enable verbose logging')
+    parser.add_argument('-k', '--key-id', help='Fingerprint of the GPG key to use'
+                        'Please make sure to specify a key without a passphrase.', required=True)
+    parser.add_argument('-s', '--start-port', help='Port where the BuddyNode listens to',
+                        default=5000)
     parser.add_argument('-i', '--known-ip', help='IP of the known machine in the circle')
-    parser.add_argument('-p', '--known-port', help='Port in the known machine use for communication.')
+    parser.add_argument('-p', '--known-port', help='Port of the known machine in the circle')
     parser.add_argument('mountpoint', help='Root directory of mounted BuddyFS')
     args = parser.parse_args()
 
     logLevel = logging.INFO
     if args.verbose:
-      logLevel = logging.DEBUG
+        logLevel = logging.DEBUG
 
     logging.basicConfig(level=logLevel)
 
     operations = BuddyFSOperations(args.key_id, args.start_port, args.known_ip, args.known_port)
     operations.auto_create_filesystem()
-    
+
     logging.info('Mounting BuddyFS')
-    llfuse.init(operations, args.mountpoint, [ b'fsname=BuddyFS' ])
+    llfuse.init(operations, args.mountpoint, [b'fsname=BuddyFS'])
     logging.info('Mounted BuddyFS at %s' % (args.mountpoint))
-    
+
     try:
         llfuse.main(single=False)
     except:
