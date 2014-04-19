@@ -22,7 +22,9 @@ from crypto.keys import KeyManager
 
 
 class BlockMetadata:
+
     """ Block metedata structure. """
+
     def __init__(self):
         self.id = None
         self.symkey = None
@@ -32,7 +34,9 @@ DEFAULT_BLOCK_SIZE = 8192
 
 
 class FileMetadata:
+
     """ File metadata structure. """
+
     def __init__(self):
         # TODO: Figure out how to represent compact files within this structure
         self.mtime = time()
@@ -44,7 +48,9 @@ class FileMetadata:
 
 
 class DirMetadata:
+
     """ Directory metadata structure. """
+
     def __init__(self):
         self.mtime = time()
         self.name = None
@@ -54,8 +60,10 @@ class DirMetadata:
 
 
 class Inode:
+
     """ In-memory FS representation.
         Inode data structure. """
+
     def __init__(self, _id):
         self.id = _id
         self.name = ''
@@ -82,7 +90,9 @@ def unblockr(lock, retval):
 
 
 class FSTree:
+
     """ Inode tree structure and associated utilities. """
+
     def __init__(self, km, start_port, known_ip, known_port):
         self.__current_id = 0
         self.inodes = {}
@@ -371,6 +381,7 @@ unpad = lambda s: s[0:-ord(s[-1])]
 
 
 class AESCipher:
+
     def __init__(self, key):
         self.key = key
 
@@ -387,7 +398,9 @@ class AESCipher:
 
 
 class BuddyFSOperations(llfuse.Operations):
+
     """BuddyFS implementation of llfuse Operations class."""
+
     def __init__(self, key_id, start_port, known_ip, known_port):
         super(BuddyFSOperations, self).__init__()
         self.km = KeyManager(key_id)
@@ -575,7 +588,7 @@ class BuddyFSOperations(llfuse.Operations):
                                                             len(node.blockMetadata.blocks))
 
         while remaining > 0:
-            blk_num = (int)(offset/bs)
+            blk_num = (int)(offset / bs)
             print 'Reading block %d, offset %d, remaining %d' % (blk_num, offset, remaining)
             blk = self.tree._read_block_(node.blockMetadata.blocks[blk_num])
 
@@ -606,7 +619,7 @@ class BuddyFSOperations(llfuse.Operations):
             print 'LENGTH', len(node.blockMetadata.blocks)
 
         while remaining:
-            blk_num = int(offset/bs)
+            blk_num = int(offset / bs)
             print 'Offset: %d, Block size %d, Block Number: %d, Remaining: %d, Bytes Copied: %d' % (
                 offset, bs, blk_num, remaining, bytes_copied)
 
@@ -614,7 +627,7 @@ class BuddyFSOperations(llfuse.Operations):
                 blk = self.tree._read_block_(node.blockMetadata.blocks[blk_num])
 
                 if (offset % bs + len(buf)) <= bs:
-                    blk = blk[:offset % bs-1] + buf
+                    blk = blk[:offset % bs - 1] + buf
                     remaining -= len(buf)
                     offset += len(buf)
                     bytes_copied += len(buf)
@@ -636,7 +649,7 @@ class BuddyFSOperations(llfuse.Operations):
                     remaining = 0
                     buf = None
                 else:
-                    blk = buf[:bs-1]
+                    blk = buf[:bs - 1]
                     buf = buf[bs:]
                     offset += bs
                     bytes_copied += bs
