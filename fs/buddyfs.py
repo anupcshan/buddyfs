@@ -675,13 +675,11 @@ if __name__ == '__main__':
     parser.add_argument('mountpoint', help='Root directory of mounted BuddyFS')
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
-
     logLevel = logging.INFO
     if args.verbose:
         logLevel = logging.DEBUG
 
-    logger.setLevel(logLevel)
+    logging.basicConfig(level=logLevel)
 
     operations = BuddyFSOperations(args.key_id, args.start_port, args.known_ip, args.known_port)
     operations.auto_create_filesystem()
