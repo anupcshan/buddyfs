@@ -21,6 +21,9 @@ from kad_server.buddyd import KadFacade
 from crypto.keys import KeyManager
 
 
+logger = logging.getLogger(__name__)
+
+
 class BlockMetadata:
 
     """ Block metedata structure. """
@@ -113,17 +116,16 @@ class FSTree:
         node = BuddyNode.get_node(self.start_port, self.known_ip,
                                   self.known_port)
         node.set_root(blk_meta.id, ciphertext)
-        logging.info('Committed block ID %s to DHT' % (blk_meta.id))
+        logger.debug('Committed block ID %s to DHT' % (blk_meta.id))
 
         node.push_to_dht(self.km.gpg_key['fingerprint'], node.get_node_id())
-        logging.info("Stored <pubkey, nodeid> mapping to DHT")
+        logger.debug("Stored <pubkey, nodeid> mapping to DHT")
 
         pubkey_list = map(lambda x: x.get('keyid'), self.km.gpg.list_keys())
-        logging.info("pubkey list : %s", pubkey_list)
+        logger.debug("pubkey list : %s", pubkey_list)
 
         peers = self.kf.get_all_peers_from_dht(pubkey_list)
-        logging.info("Peer List based on the Web of Trust Social Circle: %s",
-                     peers)
+        logger.debug("Peer List based on the Web of Trust Social Circle: %s", peers)
 
     def _read_block_(self, blk_meta):
         deferredVar = BuddyNode.get_node(self.start_port, self.known_ip,
@@ -254,7 +256,7 @@ class FSTree:
         raise 'Not implemented rmdir'
 
     def unlink(self, inode_p, name):
-        logging.debug('Unlinking %s in %d', name, inode_p)
+        logger.debug('Unlinking %s in %d', name, inode_p)
         node = self._lookup(inode_p, name)
         inode = self.get_inode_for_id(node)
 
@@ -264,8 +266,8 @@ class FSTree:
         parent = self.get_inode_for_id(inode.parent)
         i = 0
         while i < len(parent.blockMetadata.files):
-            logging.debug('Iterating %d: ID %s BID %s', i, parent.blockMetadata.files[i].id,
-                          inode.bid)
+            logger.debug('Iterating %d: ID %s BID %s', i, parent.blockMetadata.files[i].id,
+                         inode.bid)
             if parent.blockMetadata.files[i].id == inode.bid:
                 parent.blockMetadata.files[i] = parent.blockMetadata.files[
                     len(parent.blockMetadata.files) - 1]
@@ -311,7 +313,7 @@ class FSTree:
     def setattr(self, inode, attr):
         if attr.st_size is not None:
             node = self.get_inode_for_id(inode)
-            logging.debug('Resizing file %d from %d to %d bytes', inode, node.size, attr.st_size)
+            logger.debug('Resizing file %d from %d to %d bytes', inode, node.size, attr.st_size)
             node.size = node.blockMetadata.length = attr.st_size
 
             bs = int(node.blockMetadata.block_size)
@@ -319,38 +321,38 @@ class FSTree:
             new_block_count = (attr.st_size + bs - 1) / bs
 
             if new_block_count > curr_block_count:
-                logging.debug('Expanding block list from %d to %d blocks', curr_block_count,
-                              new_block_count)
+                logger.debug('Expanding block list from %d to %d blocks', curr_block_count,
+                             new_block_count)
                 blocks_to_add = new_block_count - curr_block_count
                 node.blockMetadata.blocks.extend(blocks_to_add * [BlockMetadata()])
 
         if attr.st_mode is not None:
-            logging.warning('[Not Implemented] SetAttr: Changing mode(%d) to %d', inode,
-                            attr.st_mode)
+            logger.warning('[Not Implemented] SetAttr: Changing mode(%d) to %d', inode,
+                           attr.st_mode)
 
         if attr.st_uid is not None:
-            logging.warning('[Not Implemented] SetAttr: Changing uid(%d) to %d', inode,
-                            attr.st_uid)
+            logger.warning('[Not Implemented] SetAttr: Changing uid(%d) to %d', inode,
+                           attr.st_uid)
 
         if attr.st_gid is not None:
-            logging.warning('[Not Implemented] SetAttr: Changing gid(%d) to %d', inode,
-                            attr.st_gid)
+            logger.warning('[Not Implemented] SetAttr: Changing gid(%d) to %d', inode,
+                           attr.st_gid)
 
         if attr.st_rdev is not None:
-            logging.warning('[Not Implemented] SetAttr: Changing rdev(%d) to %d', inode,
-                            attr.st_rdev)
+            logger.warning('[Not Implemented] SetAttr: Changing rdev(%d) to %d', inode,
+                           attr.st_rdev)
 
         if attr.st_atime is not None:
-            logging.warning('[Not Implemented] SetAttr: Changing atime(%d) to %d', inode,
-                            attr.st_atime)
+            logger.warning('[Not Implemented] SetAttr: Changing atime(%d) to %d', inode,
+                           attr.st_atime)
 
         if attr.st_mtime is not None:
-            logging.warning('[Not Implemented] SetAttr: Changing mtime(%d) to %d', inode,
-                            attr.st_mtime)
+            logger.warning('[Not Implemented] SetAttr: Changing mtime(%d) to %d', inode,
+                           attr.st_mtime)
 
         if attr.st_ctime is not None:
-            logging.warning('[Not Implemented] SetAttr: Changing ctime(%d) to %d', inode,
-                            attr.st_ctime)
+            logger.warning('[Not Implemented] SetAttr: Changing ctime(%d) to %d', inode,
+                           attr.st_ctime)
 
         return self.getattr(inode)
 
@@ -441,7 +443,7 @@ class BuddyFSOperations(llfuse.Operations):
         return self.tree.lookup(dir_id, name)
 
     def opendir(self, inode):
-        logging.debug('Opendir for Inode %d', inode)
+        logger.debug('Opendir for Inode %d', inode)
         return inode
 
     def readdir(self, inode, off):
@@ -461,11 +463,10 @@ class BuddyFSOperations(llfuse.Operations):
         return self.tree.unlink(inode_p, name)
 
     def setattr(self, inode, attr):
-        logging.info('Setattr not implemented: Inode %d, attr %s' % (inode, attr))
         return self.tree.setattr(inode, attr)
 
     def open(self, inode, flags):
-        logging.debug('Opening file %d with flags %s', inode, flags)
+        logger.debug('Opening file %d with flags %s', inode, flags)
 
         if inode not in self.tree.inode_open_count:
             self.tree.inode_open_count[inode] = 0
@@ -510,7 +511,7 @@ class BuddyFSOperations(llfuse.Operations):
         return (child_inode.id, self.getattr(child_inode.id))
 
     def mkdir(self, parent_inode_id, name, mode, ctx):
-        logging.debug('Mkdir: %s in parent %d', name, parent_inode_id)
+        logger.debug('Mkdir: %s in parent %d', name, parent_inode_id)
         parent_inode = self.tree.get_inode_for_id(parent_inode_id)
         child_inode = self.tree.new_inode()
         child_inode.parent = parent_inode_id
@@ -563,14 +564,14 @@ class BuddyFSOperations(llfuse.Operations):
         if root:
             self.tree.register_root_inode(root)
         else:
-            logging.info('Did not find existing root inode pointer.'
-                         ' Generating new root inode pointer.')
+            logger.info('Did not find existing root inode pointer.'
+                        ' Generating new root inode pointer.')
             self.tree.generate_root_inode()
 
     def read(self, fh, offset, remaining):
         node = self.tree.get_inode_for_id(fh)
-        logging.debug('Reading range (%d, %d) from file %d (len: %d)', offset, offset + remaining,
-                      fh, node.blockMetadata.length)
+        logger.debug('Reading range (%d, %d) from file %d (len: %d)', offset, offset + remaining,
+                     fh, node.blockMetadata.length)
         bs = int(node.blockMetadata.block_size)
         buf = []
 
@@ -605,8 +606,8 @@ class BuddyFSOperations(llfuse.Operations):
         bytes_copied = 0
 
         remaining = len(buf)
-        logging.debug('Writing range (%d, %d) from file %d (len: %d)', offset, offset + remaining,
-                      fh, node.blockMetadata.length)
+        logger.debug('Writing range (%d, %d) to file %d (len: %d)', offset, offset + remaining,
+                     fh, node.blockMetadata.length)
 
         if ((offset + remaining + bs - 1) / bs) > len(node.blockMetadata.blocks):
             max_blks = int((offset + remaining + bs - 1) / bs)
@@ -674,18 +675,20 @@ if __name__ == '__main__':
     parser.add_argument('mountpoint', help='Root directory of mounted BuddyFS')
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO)
+
     logLevel = logging.INFO
     if args.verbose:
         logLevel = logging.DEBUG
 
-    logging.basicConfig(level=logLevel)
+    logger.setLevel(logLevel)
 
     operations = BuddyFSOperations(args.key_id, args.start_port, args.known_ip, args.known_port)
     operations.auto_create_filesystem()
 
-    logging.info('Mounting BuddyFS')
+    logger.info('Mounting BuddyFS')
     llfuse.init(operations, args.mountpoint, [b'fsname=BuddyFS'])
-    logging.info('Mounted BuddyFS at %s' % (args.mountpoint))
+    logger.info('Mounted BuddyFS at %s' % (args.mountpoint))
 
     try:
         llfuse.main(single=False)
