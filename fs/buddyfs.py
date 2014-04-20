@@ -165,6 +165,12 @@ class FSTree:
         cipher = AESCipher(blk_meta.symkey)
         return cipher.decrypt(ciph_data)
 
+    def _export_root_inode_pointer_to_dht(self, rootMeta):
+        encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(rootMeta),
+                                                   self.km.gpg_key['fingerprint'])
+        BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(
+            self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+
     def generate_root_inode(self):
         if self.ROOT_INODE is not None:
             raise "Attempting to overwrite root inode"
@@ -177,14 +183,9 @@ class FSTree:
         rootMeta = BlockMetadata()
         dirMeta = self.ROOT_INODE.blockMetadata = DirMetadata()
         self._commit_block_(rootMeta, dirMeta)
-        self.ROOT_INODE.bid = rootMeta.id
 
         self.ROOT_INODE.bid = rootMeta.id
-
-        encrypted_root_block = self.km.gpg.encrypt(pickle.dumps(rootMeta),
-                                                   self.km.gpg_key['fingerprint'])
-        BuddyNode.get_node(self.start_port, self.known_ip, self.known_port).set_root(
-            self.km.gpg_key['fingerprint'], encrypted_root_block.data)
+        self._export_root_inode_pointer_to_dht(rootMeta)
 
     def register_root_inode(self, root_block):
         if self.ROOT_INODE is not None:
