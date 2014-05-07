@@ -1,6 +1,8 @@
 BuddyFS
 =======
 
+[![Build Status](https://drone.io/github.com/anupcshan/buddyfs/status.png)](https://drone.io/github.com/anupcshan/buddyfs/latest)
+
 A secure, distributed file system to share storage space on your computer with your friends. Your social network of friends is based on the web-of-trust model as seen in PGP systems.
 
 Why a new Filesystem?
