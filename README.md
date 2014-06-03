@@ -28,5 +28,4 @@ Status
 ------
 Currently in development. Please contact the authors if you are interested in this idea.
 
-
-
+Please see https://github.com/buddyfs/gobuddyfs for newer design of the same system implemented in Golang.
